@@ -30,7 +30,7 @@ primitive FactsSymbols
           FactsRange(declaration.span),
           FactsRange(declaration.name_span))
       built.push(symbol)
-      match declaration.container
+      match \exhaustive\ declaration.container
       | let container: USize =>
         try
           built(container)?.children.push(symbol)

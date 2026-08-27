@@ -31,10 +31,8 @@ primitive _Declarations
             match name_element
             | let n: USize =>
               let from = try offsets(n)? else 0 end
-              recover val
-                source.substring(from.isize(),
-                  (from + (try tree.width(n)? else 0 end)).isize())
-              end
+              let to = from + (try tree.width(n)? else 0 end)
+              recover val source.substring(from.isize(), to.isize()) end
             else
               ""
             end
@@ -42,7 +40,9 @@ primitive _Declarations
             match name_element
             | let n: USize =>
               let from = try offsets(n)? else 0 end
-              Span.from_bytes(index, from,
+              Span.from_bytes(
+                index,
+                from,
                 from + (try tree.width(n)? else 0 end))
             else
               Span.from_bytes(index, at, at)
@@ -51,8 +51,13 @@ primitive _Declarations
           let container =
             try open(open.size() - 1)?._2 else None end
 
-          out.push(Declaration(k, name,
-            Span.from_bytes(index, at, at + width), name_span, container))
+          out.push(
+            Declaration(
+              k,
+              name,
+              Span.from_bytes(index, at, at + width),
+              name_span,
+              container))
           open.push((depth, out.size() - 1))
         end
       end

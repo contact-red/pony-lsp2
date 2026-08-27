@@ -15,7 +15,6 @@ class val SyntaxTree
   """
   let source: String val
   let diagnostics: Array[SyntaxDiagnostic val] val
-
   let _elems: Array[(SyntaxKind, U32, U32)] val
     """
     Kind, width in bytes, subtree size in elements.

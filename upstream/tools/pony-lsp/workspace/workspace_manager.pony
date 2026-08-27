@@ -422,7 +422,7 @@ actor WorkspaceManager
       let package: FilePath = this._find_workspace_package(document_path)?
       let package_state = this._ensure_package(package)
       let doc_state = package_state.ensure_document(document_path)
-      match _full_text(notification)
+      match \exhaustive\ _full_text(notification)
       | let text: String val =>
         if doc_state.set_text(text, _client_version(notification)) then
           _publish_syntax_diagnostics(document_path, doc_state)

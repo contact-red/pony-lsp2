@@ -45,10 +45,3 @@ class val Span
       .> append(finish_line.string())
       .> append(":")
       .> append(finish_character.string())
-
-interface val LineIndexView
-  """
-  What a `Span` needs from a line index. Structural, so that this package
-  does not depend on the one that provides it.
-  """
-  fun position(byte: USize): (USize, USize)

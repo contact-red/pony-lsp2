@@ -1,9 +1,13 @@
 primitive FoldRegion
-  """A declaration, a body, or another structural region."""
+  """
+  A declaration, a body, or another structural region.
+  """
   fun name(): String val => "region"
 
 primitive FoldComment
-  """A comment or a docstring spanning more than one line."""
+  """
+  A comment or a docstring spanning more than one line.
+  """
   fun name(): String val => "comment"
 
 type FoldKind is (FoldRegion | FoldComment)

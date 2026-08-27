@@ -16,7 +16,6 @@ class val DocumentFacts
   let declarations: Array[Declaration] val
   let foldable: Array[FoldingRegion] val
   let diagnostics: Array[Diagnostic] val
-
   let _tree: SyntaxTree val
   let _index: LineIndex
   let _offsets: Array[USize] val
@@ -47,9 +46,10 @@ class val DocumentFacts
       recover val
         let out = Array[Diagnostic](_tree.diagnostics.size())
         for d in _tree.diagnostics.values() do
-          out.push(Diagnostic(
-            Span.from_bytes(_index, d.offset, d.offset + d.width),
-            d.message))
+          out.push(
+            Diagnostic(
+              Span.from_bytes(_index, d.offset, d.offset + d.width),
+              d.message))
         end
         out
       end
@@ -59,8 +59,8 @@ class val DocumentFacts
     The span of one tree element.
     """
     let from = try _offsets(element)? else 0 end
-    Span.from_bytes(_index, from,
-      from + (try _tree.width(element)? else 0 end))
+    let to = from + (try _tree.width(element)? else 0 end)
+    Span.from_bytes(_index, from, to)
 
   fun enclosing(line: USize, character: USize): Array[Span] val =>
     """

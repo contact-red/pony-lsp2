@@ -16,7 +16,6 @@ class Parser
   """
   let _source: String val
   let _stream: TokenStream val
-
   var _elems: Array[(SyntaxKind, U32, U32)] iso =
     recover Array[(SyntaxKind, U32, U32)] end
     """
@@ -28,11 +27,14 @@ class Parser
   var _diagnostics: Array[SyntaxDiagnostic val] iso =
     recover Array[SyntaxDiagnostic val] end
   embed _open: Array[(USize, USize)] = Array[(USize, USize)]
-
   var _index: USize = 0
-    """Index into the token stream, of the next unconsumed token."""
+    """
+    Index into the token stream, of the next unconsumed token.
+    """
   var _offset: USize = 0
-    """Byte offset of `_index`."""
+    """
+    Byte offset of `_index`.
+    """
 
   new create(source': String val) =>
     _source = source'
@@ -155,8 +157,8 @@ class Parser
     try
       (let index, let from) = _open.pop()?
       (let k, _, _) = _elems(index)?
-      _elems(index)? = (k, (_offset - from).u32(),
-        (_elems.size() - index).u32())
+      _elems(index)? =
+        (k, (_offset - from).u32(), (_elems.size() - index).u32())
     end
 
   fun ref checkpoint(): (USize, USize) =>
@@ -181,7 +183,8 @@ class Parser
     """
     (let index, let from) = mark
     try
-      _elems.insert(index,
+      _elems.insert(
+        index,
         (k, (_offset - from).u32(), ((_elems.size() - index) + 1).u32()))?
     end
 
@@ -229,8 +232,11 @@ class Parser
     Record that `what` was expected here. Consumes nothing.
     """
     (let found, _, let byte) = _peek(_index)
-    _diagnostics.push(SyntaxDiagnostic(byte, 0,
-      "expected " + what + ", found " + found.name()))
+    _diagnostics.push(
+      SyntaxDiagnostic(
+        byte,
+        0,
+        "expected " + what + ", found " + found.name()))
 
   fun ref error_and_recover(what: String val, resync: Array[TokenKind] box) =>
     """

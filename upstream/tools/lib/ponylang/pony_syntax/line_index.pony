@@ -40,7 +40,6 @@ class val LineIndex
   """
   let source: String val
   let encoding: PositionEncoding
-
   let _line_starts: Array[USize] val
     """
     The byte offset at which each line begins. Always starts with 0, so

@@ -20,91 +20,135 @@ primitive NdError
   fun name(): String val => "NdError"
 
 primitive NdModule
-  """A whole source file."""
+  """
+  A whole source file.
+  """
   fun name(): String val => "NdModule"
 
 primitive NdUse
-  """A `use` command."""
+  """
+  A `use` command.
+  """
   fun name(): String val => "NdUse"
 
 primitive NdUseName
-  """The `name =` that may precede a `use` specifier."""
+  """
+  The `name =` that may precede a `use` specifier.
+  """
   fun name(): String val => "NdUseName"
 
-primitive NdUseFfi
-  """An FFI declaration: `@name[R](params)`."""
-  fun name(): String val => "NdUseFfi"
+primitive NdUseFFI
+  """
+  An FFI declaration: `@name[R](params)`.
+  """
+  fun name(): String val => "NdUseFFI"
 
 primitive NdClassDef
-  """A type, interface, trait, primitive, struct, class or actor."""
+  """
+  A type, interface, trait, primitive, struct, class or actor.
+  """
   fun name(): String val => "NdClassDef"
 
 primitive NdAnnotations
-  """A `\\annotation\\` list."""
+  """
+  A `\\annotation\\` list.
+  """
   fun name(): String val => "NdAnnotations"
 
 primitive NdProvides
-  """The `is` clause of an entity."""
+  """
+  The `is` clause of an entity.
+  """
   fun name(): String val => "NdProvides"
 
 primitive NdMembers
-  """The fields and methods of an entity."""
+  """
+  The fields and methods of an entity.
+  """
   fun name(): String val => "NdMembers"
 
 primitive NdField
-  """A `var`, `let` or `embed` field."""
+  """
+  A `var`, `let` or `embed` field.
+  """
   fun name(): String val => "NdField"
 
 primitive NdMethod
-  """A `fun`, `be` or `new`."""
+  """
+  A `fun`, `be` or `new`.
+  """
   fun name(): String val => "NdMethod"
 
 primitive NdParams
-  """A parenthesised parameter list."""
+  """
+  A parenthesised parameter list.
+  """
   fun name(): String val => "NdParams"
 
 primitive NdParam
-  """One parameter."""
+  """
+  One parameter.
+  """
   fun name(): String val => "NdParam"
 
 primitive NdTypeParams
-  """A `[...]` type parameter list on a declaration."""
+  """
+  A `[...]` type parameter list on a declaration.
+  """
   fun name(): String val => "NdTypeParams"
 
 primitive NdTypeParam
-  """One type parameter."""
+  """
+  One type parameter.
+  """
   fun name(): String val => "NdTypeParam"
 
 primitive NdTypeArgs
-  """A `[...]` type argument list at a use site."""
+  """
+  A `[...]` type argument list at a use site.
+  """
   fun name(): String val => "NdTypeArgs"
 
 primitive NdTypeList
-  """The parameter types of a lambda type."""
+  """
+  The parameter types of a lambda type.
+  """
   fun name(): String val => "NdTypeList"
 
 primitive NdNominal
-  """A named type, with its package, arguments and capability."""
+  """
+  A named type, with its package, arguments and capability.
+  """
   fun name(): String val => "NdNominal"
 
 primitive NdThisType
-  """The type `this`."""
+  """
+  The type `this`.
+  """
   fun name(): String val => "NdThisType"
 
 primitive NdGroupedType
-  """A parenthesised type."""
+  """
+  A parenthesised type.
+  """
   fun name(): String val => "NdGroupedType"
 
 primitive NdTupleType
-  """Comma-separated types inside a parenthesised type."""
+  """
+  Comma-separated types inside a parenthesised type.
+  """
   fun name(): String val => "NdTupleType"
 
 primitive NdLambdaType
-  """A `{...}` lambda type."""
+  """
+  A `{...}` lambda type.
+  """
   fun name(): String val => "NdLambdaType"
 
 primitive NdBareLambdaType
-  """An `@{...}` bare lambda type."""
+  """
+  An `@{...}` bare lambda type.
+  """
   fun name(): String val => "NdBareLambdaType"
 
 primitive NdInfixType
@@ -118,19 +162,27 @@ primitive NdInfixType
   fun name(): String val => "NdInfixType"
 
 primitive NdViewpoint
-  """A `->` viewpoint type."""
+  """
+  A `->` viewpoint type.
+  """
   fun name(): String val => "NdViewpoint"
 
 primitive NdValueFormalArg
-  """A literal or constant expression used as a type argument."""
+  """
+  A literal or constant expression used as a type argument.
+  """
   fun name(): String val => "NdValueFormalArg"
 
 primitive NdConstExpr
-  """A `#`-prefixed constant expression."""
+  """
+  A `#`-prefixed constant expression.
+  """
   fun name(): String val => "NdConstExpr"
 
 primitive NdDefaultArg
-  """The `= value` of a parameter."""
+  """
+  The `= value` of a parameter.
+  """
   fun name(): String val => "NdDefaultArg"
 
 primitive NdBlock
@@ -172,7 +224,7 @@ type NodeKind is
   | NdModule
   | NdUse
   | NdUseName
-  | NdUseFfi
+  | NdUseFFI
   | NdClassDef
   | NdAnnotations
   | NdProvides

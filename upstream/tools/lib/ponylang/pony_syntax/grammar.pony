@@ -64,7 +64,7 @@ primitive _Use
     if p.at(TkString) then
       p.bump()
     elseif p.at(TkAt) then
-      _UseFfi(p)
+      _UseFFI(p)
     else
       p.error_and_recover(
         "a package path or an FFI declaration", TokenSets.top_level())
@@ -77,12 +77,12 @@ primitive _Use
 
     p.finish()
 
-primitive _UseFfi
+primitive _UseFFI
   """
   ponyc's `use_ffi`: `@name[ReturnType](params) [?]`.
   """
   fun apply(p: Parser ref) =>
-    p.start(NdUseFfi)
+    p.start(NdUseFFI)
     p.bump()
     p.expect_any([TkId; TkString], "an FFI name")
     if p.at(TkLsquare) then

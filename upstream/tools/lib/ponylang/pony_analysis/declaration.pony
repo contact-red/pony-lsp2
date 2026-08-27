@@ -1,24 +1,67 @@
 primitive DeclTypeAlias
+  """
+  A `type` alias.
+  """
   fun name(): String val => "type"
+
 primitive DeclInterface
+  """
+  An `interface`.
+  """
   fun name(): String val => "interface"
+
 primitive DeclTrait
+  """
+  A `trait`.
+  """
   fun name(): String val => "trait"
+
 primitive DeclPrimitive
+  """
+  A `primitive`.
+  """
   fun name(): String val => "primitive"
+
 primitive DeclStruct
+  """
+  A `struct`.
+  """
   fun name(): String val => "struct"
+
 primitive DeclClass
+  """
+  A `class`.
+  """
   fun name(): String val => "class"
+
 primitive DeclActor
+  """
+  An `actor`.
+  """
   fun name(): String val => "actor"
+
 primitive DeclField
+  """
+  A `var`, `let` or `embed` field.
+  """
   fun name(): String val => "field"
+
 primitive DeclFunction
+  """
+  A `fun`.
+  """
   fun name(): String val => "fun"
+
 primitive DeclBehaviour
+  """
+  A `be`.
+  """
   fun name(): String val => "be"
+
 primitive DeclConstructor
+  """
+  A `new`.
+  """
   fun name(): String val => "new"
 
 type DeclarationKind is
@@ -52,7 +95,6 @@ class val Declaration
   let name: String val
   let span: Span
   let name_span: Span
-
   let container: (USize | None)
     """
     The index in the same document's declaration list of what encloses
