@@ -474,6 +474,27 @@ actor WorkspaceManager
     end
     None
 
+  fun _document_facts(document_path: String)
+    : (analysis.DocumentFacts | None)
+  =>
+    """
+    What syntax says about a document's buffer, or `None` if the client has
+    not told us about one.
+    """
+    try
+      let package: FilePath = this._find_workspace_package(document_path)?
+      match \exhaustive\ this._get_package(package)
+      | let pkg_state: PackageState box =>
+        match \exhaustive\ pkg_state.get_document(document_path)
+        | let doc: DocumentState box => doc.facts()
+        | None => None
+        end
+      | None => None
+      end
+    else
+      None
+    end
+
   fun _publish_syntax_diagnostics(
     document_path: String,
     doc_state: DocumentState box)
@@ -499,7 +520,7 @@ actor WorkspaceManager
       for d in facts.diagnostics.values() do
         diagnostics = diagnostics.push(
           Diagnostic(
-            LspLocation(Uris.from_path(document_path), _lsp_range(d.span)),
+            LspLocation(Uris.from_path(document_path), FactsRange(d.span)),
             DiagnosticSeverities.err(),
             d.message).to_json())
       end
@@ -516,16 +537,6 @@ actor WorkspaceManager
             .update("version", doc_state.text_version().i64())
             .update("diagnostics", diagnostics)))
     end
-
-  fun _lsp_range(span: analysis.Span): LspPositionRange =>
-    """
-    An analysis span as an LSP range. Both are zero-based lines and
-    characters, and the characters are already counted in the encoding the
-    span was built with, so this is a change of type and not of meaning.
-    """
-    LspPositionRange(
-      LspPosition(span.start_line, span.start_character),
-      LspPosition(span.finish_line, span.finish_character))
 
   fun _client_version(notification: Notification val): I64 =>
     """
@@ -1050,7 +1061,15 @@ actor WorkspaceManager
         // this._channel.log(pkg_state.debug())
         match \exhaustive\ pkg_state.get_document(document_path)
         | let doc: DocumentState =>
-          let symbols = doc.document_symbols()
+          // The buffer, when the client has told us about one. An outline
+          // is syntax, so it needs no compile and it survives a file that
+          // will not compile.
+          let symbols =
+            match doc.facts()
+            | let facts: analysis.DocumentFacts => FactsSymbols(facts)
+            else
+              doc.document_symbols()
+            end
           var json_arr = JSONArray
           for symbol in symbols.values() do
             json_arr = json_arr.push(symbol.to_json())
@@ -1261,6 +1280,15 @@ actor WorkspaceManager
       | let pkg_state: PackageState =>
         match \exhaustive\ pkg_state.get_document(document_path)
         | let doc: DocumentState =>
+          match doc.facts()
+          | let facts: analysis.DocumentFacts =>
+            var from_buffer = JSONArray
+            for range in FactsFolding(facts).values() do
+              from_buffer = from_buffer.push(range)
+            end
+            this._channel.send(ResponseMessage(request.id, from_buffer))
+            return
+          end
           match \exhaustive\ doc.module()
           | let module: Module val =>
             let fold_ranges = FoldingRanges.collect(module)
@@ -1310,11 +1338,16 @@ actor WorkspaceManager
           try
             let l = JSONNav(pos_val)("line").as_i64()?
             let c = JSONNav(pos_val)("character").as_i64()?
-            match _find_node_and_module(document_path, l, c)
-            | (let node: AST box, _) =>
-              SelectionRanges.collect(node, document_path)
+            match _document_facts(document_path)
+            | let facts: analysis.DocumentFacts =>
+              FactsSelection(facts.enclosing(l.usize(), c.usize()))
             else
-              None
+              match _find_node_and_module(document_path, l, c)
+              | (let node: AST box, _) =>
+                SelectionRanges.collect(node, document_path)
+              else
+                None
+              end
             end
           else
             None // malformed position entry — keep array parallel

@@ -239,6 +239,12 @@ class \nodoc\ iso _FoldingRangeMoreExpressionsRangesTest is UnitTest
             (12, 17)
             (14, 16)
             (19, 21)
+            // The `with` block itself. ponyc desugars `with` before the
+            // typechecked AST, so tk_with is never in the tree the old
+            // implementation read and it could not offer this fold. A
+            // tree built from syntax has the block, and a block a reader
+            // can see is a block a reader can collapse.
+            (20, 21)
             (24, 29)
             (26, 27)
             (31, 36)

@@ -140,28 +140,24 @@ primitive _Foldable
       let out = Array[FoldingRegion]
 
       for (element, _, at, kind, width) in tree.walk() do
+        // Declarations and the balanced regions inside a body. Not the
+        // member list, whose extent is the entity's own but for the
+        // signature line, and not a docstring: a fold that hides what a
+        // thing is for is a fold nobody wants.
         let fold_kind =
           match kind
-          | NdClassDef | NdMethod | NdBody | NdMembers | NdParams =>
-            FoldRegion
-          | TkNestedComment => FoldComment
-          | TkString => FoldComment
+          | NdClassDef | NdMethod | NdBlock => FoldRegion
           else
             continue
           end
 
         (let start_line, _) = index.position(at)
-        (let raw_finish, let finish_character) = index.position(at + width)
 
-        // A span that ends at the first character of a line covers the
-        // newline before it and nothing else on that line, so the last
-        // line worth hiding is the one before.
-        let finish_line =
-          if (finish_character == 0) and (raw_finish > start_line) then
-            raw_finish - 1
-          else
-            raw_finish
-          end
+        // A region ends at its last line of content, not at the line that
+        // closes it. Hiding the `end` of a block leaves the structure
+        // unreadable, and a client shows the closing line as the marker
+        // for what was collapsed.
+        let finish_line = _LastContentLine(tree, index, offsets, element)
 
         if finish_line > start_line then
           out.push(FoldingRegion(fold_kind, start_line, finish_line))
@@ -169,4 +165,77 @@ primitive _Foldable
       end
 
       out
+    end
+
+primitive _LastContentLine
+  """
+  The line a region's fold should end on.
+
+  The last line of content, where a region's own closing line is not
+  content: hiding it leaves the structure unreadable, and a client shows
+  that line as the marker for what was collapsed. `end` and `}` close a
+  region that way; `)` and `]` sit at the end of the thing they close --
+  the last line of a parenthesised type is the line with the `)` on it.
+
+  Only its own. A closer belonging to a block nested inside this one is
+  the last thing in this one, which is why a `while` wrapping an `if`
+  folds to the `if`'s `end` and not past it.
+  """
+  fun apply(
+    tree: SyntaxTree val,
+    index: LineIndex,
+    offsets: Array[USize] val,
+    element: USize)
+    : USize
+  =>
+    let span = try tree.subtree_size(element)? else 1 end
+    var i = element + span
+    var skipped_own_end = false
+
+    while i > element do
+      i = i - 1
+      try
+        if not tree.is_leaf(i)? then
+          continue
+        end
+        let kind = tree.kind(i)?
+        if _Trivia(kind) then
+          continue
+        end
+        if (not skipped_own_end) and
+          ((kind is TkEnd) or (kind is TkRbrace))
+        then
+          skipped_own_end = true
+          continue
+        end
+        (let line, _) = index.position(offsets(i)? + tree.width(i)?)
+        return line
+      end
+    end
+
+    (let line, _) = index.position(try offsets(element)? else 0 end)
+    line
+
+primitive _Trivia
+  fun apply(kind: SyntaxKind): Bool =>
+    match kind
+    | TkWhitespace | TkLineComment | TkNestedComment | TkEof => true
+    else
+      false
+    end
+
+primitive _Selectable
+  """
+  Whether a leaf is worth offering as a step when expanding a selection.
+
+  A token whose text its kind fixes -- a keyword, a bracket, an operator
+  -- is not: someone expanding from the cursor on `primitive` wants the
+  declaration, not the word. One whose text it does not fix is: an
+  identifier or a literal is the thing a person reaches for first.
+  """
+  fun apply(kind: SyntaxKind): Bool =>
+    match kind
+    | TkId | TkString | TkInt | TkFloat => true
+    else
+      false
     end

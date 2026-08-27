@@ -133,6 +133,28 @@ primitive NdDefaultArg
   """The `= value` of a parameter."""
   fun name(): String val => "NdDefaultArg"
 
+primitive NdBlock
+  """
+  A balanced region inside a body: a region Pony closes with `end`, or a
+  bracketed group.
+
+  The body skeleton emits these as it goes, so a body has real nesting
+  before the expression rules exist to give it meaning. Folding and
+  expanding a selection both need the structure rather than the meaning,
+  which is why they work now.
+  """
+  fun name(): String val => "NdBlock"
+
+primitive NdGroup
+  """
+  A bracketed group inside a body: `(...)`, `[...]`, `{...}`.
+
+  Kept apart from `NdBlock` because the two are folded differently -- a
+  region a reader thinks of as a block is worth collapsing, and the
+  arguments of a call spread over three lines are not.
+  """
+  fun name(): String val => "NdGroup"
+
 primitive NdBody
   """
   An expression or a method body, taken as a balanced region rather than
@@ -175,6 +197,8 @@ type NodeKind is
   | NdConstExpr
   | NdDefaultArg
   | NdBody
+  | NdBlock
+  | NdGroup
   )
   """
   Every kind of interior node. Grows as grammar rules are ported.

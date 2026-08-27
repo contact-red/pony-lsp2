@@ -75,25 +75,55 @@ class val DocumentFacts
     recover val
       let spans = Array[Span]
       let path = _tree.path_to(byte)
-      var i = path.size()
-      while i > 0 do
-        i = i - 1
+
+      // A position inside whitespace or a comment has nothing to select.
+      // The innermost thing covering it is the run of trivia itself, and
+      // offering that as the first step of an expanding selection is
+      // offering to select the gap between two declarations. An empty
+      // chain leaves the client to do whatever it does for plain text.
+      let in_trivia =
         try
-          let span = span_of(path(i)?)
-          let duplicate =
-            try
-              let last = spans(spans.size() - 1)?
-              (last.start_line == span.start_line) and
-                (last.start_character == span.start_character) and
-                (last.finish_line == span.finish_line) and
-                (last.finish_character == span.finish_character)
-            else
-              false
+          _Trivia(_tree.kind(path(path.size() - 1)?)?)
+        else
+          true
+        end
+
+      // A leaf whose text is fixed by its kind -- a keyword, a piece of
+      // punctuation -- is not a step worth offering: expanding from the
+      // cursor on `primitive` should select the declaration, not the
+      // word. An identifier or a literal is worth offering, because
+      // selecting a name is what someone reaches for first.
+      let drop_innermost =
+        try
+          let innermost = path(path.size() - 1)?
+          _tree.is_leaf(innermost)? and
+            (not _Selectable(_tree.kind(innermost)?))
+        else
+          false
+        end
+
+      if not in_trivia then
+        var i = path.size() - if drop_innermost then 1 else 0 end
+        while i > 0 do
+          i = i - 1
+          try
+            let span = span_of(path(i)?)
+            let duplicate =
+              try
+                let last = spans(spans.size() - 1)?
+                (last.start_line == span.start_line) and
+                  (last.start_character == span.start_character) and
+                  (last.finish_line == span.finish_line) and
+                  (last.finish_character == span.finish_character)
+              else
+                false
+              end
+            if not duplicate then
+              spans.push(span)
             end
-          if not duplicate then
-            spans.push(span)
           end
         end
       end
+
       spans
     end
