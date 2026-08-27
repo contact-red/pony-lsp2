@@ -17,3 +17,4 @@ actor \nodoc\ Main is TestList
     _TreeTests.tests(test)
     _GrammarTests.tests(test)
     _LineIndexTests.tests(test)
+    _AnalysisTests.tests(test)

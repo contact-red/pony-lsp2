@@ -63,3 +63,16 @@ lost. It found the two bugs the unit tests did not:
     rest was read as fields -- 115 of the 255 files.
   - `iftype` lexes as `TkIftypeSet`, not `TkIftype`, so the skeleton never
     counted it as opening a region and its `end` looked unbalanced.
+
+## The facts check
+
+`./dump --facts <files>` projects the analysis facts from each file and
+reports any declaration with no name, and any file that produced a
+diagnostic.
+
+Over ponyc's `packages/`: 255 files, no failures, 9267 declarations of which
+1542 are top level.
+
+A grep for lines beginning with an entity keyword finds 1590. The 48
+difference is the check working: grep counts `actor Main` at column 0 inside
+`String`'s docstring, in a fenced example, and the parser does not.

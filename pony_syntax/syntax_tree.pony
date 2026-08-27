@@ -90,6 +90,49 @@ class val SyntaxTree
     """
     ChildIterator(this, i, subtree_size(i)?)
 
+  fun path_to(byte: USize): Array[USize] val =>
+    """
+    The elements containing byte offset `byte`, outermost first, ending at
+    the innermost that covers it.
+
+    This is what expanding a selection walks: each step outwards is the
+    next span. Empty when the offset is past the end of the source.
+    """
+    recover val
+      let path = Array[USize]
+      let root_width = try width(0)? else 0 end
+
+      if (size() > 0) and (byte < root_width) then
+        path.push(0)
+        var index: USize = 0
+        var from: USize = 0
+        var span = try subtree_size(0)? else 1 end
+        var descended = true
+
+        while descended do
+          descended = false
+          var child = index + 1
+          var at = from
+          while child < (index + span) do
+            let child_width = try width(child)? else 0 end
+            let child_span = try subtree_size(child)? else 1 end
+            if (byte >= at) and (byte < (at + child_width)) then
+              path.push(child)
+              index = child
+              from = at
+              span = child_span
+              descended = true
+              break
+            end
+            at = at + child_width
+            child = child + child_span
+          end
+        end
+      end
+
+      path
+    end
+
   fun walk(): TreeWalk^ =>
     """
     Every element in pre-order as `(index, depth, offset, kind, width)`,

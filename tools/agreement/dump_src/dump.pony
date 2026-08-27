@@ -1,5 +1,6 @@
 use "files"
 use "../../../pony_syntax"
+use "../../../pony_analysis"
 
 actor \nodoc\ Main
   """
@@ -16,13 +17,22 @@ actor \nodoc\ Main
     let auth = FileAuth(env.root)
     let args = env.args.slice(1)
     var reprint = false
+    var facts_mode = false
     let paths = Array[String]
     for a in args.values() do
-      if a == "--reprint" then reprint = true else paths.push(a) end
+      if a == "--reprint" then
+        reprint = true
+      elseif a == "--facts" then
+        facts_mode = true
+      else
+        paths.push(a)
+      end
     end
 
     var checked: USize = 0
     var bad: USize = 0
+    var decls: USize = 0
+    var top_level: USize = 0
 
     for path in paths.values() do
       let src =
@@ -33,7 +43,27 @@ actor \nodoc\ Main
           continue
         end
 
-      if reprint then
+      if facts_mode then
+        checked = checked + 1
+        let facts = DocumentFacts(src)
+        for d in facts.declarations.values() do
+          if d.name.size() == 0 then
+            bad = bad + 1
+            env.out.print("UNNAMED " + d.kind.name() + " in " + path +
+              " at " + d.span.string())
+          end
+        end
+        if facts.diagnostics.size() > 0 then
+          bad = bad + 1
+          env.out.print("DIAGNOSTICS " + path)
+        end
+        for d in facts.declarations.values() do
+          if d.container is None then
+            top_level = top_level + 1
+          end
+        end
+        decls = decls + facts.declarations.size()
+      elseif reprint then
         checked = checked + 1
         let tree = Parse(src)
         if tree.reprint() != src then
@@ -76,6 +106,10 @@ actor \nodoc\ Main
       end
     end
 
-    if reprint then
+    if reprint or facts_mode then
       env.out.print("files " + checked.string() + ", failures " + bad.string())
+    end
+    if facts_mode then
+      env.out.print("declarations " + decls.string() +
+        ", top level " + top_level.string())
     end
