@@ -381,6 +381,13 @@ actor WorkspaceManager
     this._channel.log("did_open in pony package @ " + package.path)
     let package_state = this._ensure_package(package)
     let doc_state = package_state.ensure_document(document_path)
+
+    // didOpen carries the whole document, and from here on the client's
+    // copy is what the user is looking at rather than what is on disk.
+    match _full_text(notification)
+    | let text: String val =>
+      doc_state.set_text(text, _client_version(notification))
+    end
     if doc_state.needs_compilation() then
       if this._compiling then
         let current_hash = doc_state.module_hash()
@@ -391,6 +398,81 @@ actor WorkspaceManager
           ". Need to compile.")
         this._compile(package)
       end
+    end
+
+  be did_change(document_uri: String, notification: Notification val) =>
+    """
+    Handling the textDocument/didChange notification.
+
+    The client sends the whole document, because the server asks for Full
+    sync. Taking it is all this does: the features still answer from the
+    last compile, and moving them onto the buffer is a separate change.
+
+    Nothing is compiled here. A compile is a whole-program run of libponyc
+    through a single actor, seconds long on a workspace of any size, and
+    running one per keystroke is not a thing that can be made to work.
+    """
+    let document_path = Uris.to_path(document_uri)
+    try
+      let package: FilePath = this._find_workspace_package(document_path)?
+      let package_state = this._ensure_package(package)
+      let doc_state = package_state.ensure_document(document_path)
+      match _full_text(notification)
+      | let text: String val =>
+        doc_state.set_text(text, _client_version(notification))
+      | None =>
+        this._channel.log(
+          "[didChange] no full document for " + document_path +
+          "; the server asks for Full sync and cannot apply a range")
+      end
+    else
+      _channel.log("document not in workspace: " + document_path)
+    end
+
+  fun _full_text(notification: Notification val): (String val | None) =>
+    """
+    The whole document out of a didOpen or a didChange, or `None` if the
+    notification does not carry one.
+
+    didOpen puts it at `textDocument.text`. didChange puts a list at
+    `contentChanges`, which under Full sync holds one entry whose `text` is
+    the whole document. An entry carrying a `range` is an incremental
+    change, which this server does not ask for and could not apply, so it
+    is refused rather than mistaken for a whole document.
+    """
+    try
+      return JSONPathParser.compile("$.textDocument.text")?
+        .query_one(notification.params) as String
+    end
+
+    let incremental =
+      try
+        JSONPathParser.compile("$.contentChanges[0].range")?
+          .query_one(notification.params)
+        true
+      else
+        false
+      end
+    if incremental then
+      return None
+    end
+
+    try
+      return JSONPathParser.compile("$.contentChanges[0].text")?
+        .query_one(notification.params) as String
+    end
+    None
+
+  fun _client_version(notification: Notification val): I64 =>
+    """
+    The client's version of the text in a notification, or -1 if it gave
+    none. Used only for ordering, never as an identity.
+    """
+    try
+      JSONPathParser.compile("$.textDocument.version")?
+        .query_one(notification.params) as I64
+    else
+      -1
     end
 
   be did_close(document_uri: String, notification: Notification val) =>

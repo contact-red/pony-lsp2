@@ -364,6 +364,16 @@ actor LanguageServer is (Notifier & RequestSender)
           "[" + n.method + "] No workspace found for '" +
           n.json().print() + "'")
       end
+    | Methods.text_document().did_change() =>
+      try
+        let document_uri = _get_document_uri(n.params)?
+        (_router.find_workspace(document_uri) as WorkspaceManager)
+          .did_change(document_uri, n)
+      else
+        this._channel.log(
+          "[" + n.method + "] No workspace found for '" +
+          n.json().print() + "'")
+      end
     | Methods.text_document().did_close() =>
       try
         let document_uri = _get_document_uri(n.params)?
@@ -480,7 +490,12 @@ actor LanguageServer is (Notifier & RequestSender)
                 .update(
                   "textDocumentSync",
                   JSONObject
-                    .update("change", I64(0))
+                    // 1 is Full: the client sends the whole document on
+                    // every change. 0 is None, which tells the client not
+                    // to send didChange at all -- and that, rather than
+                    // the cost of a compile, is why the server has never
+                    // seen an unsaved edit.
+                    .update("change", I64(1))
                     .update("openClose", true)
                     .update("save", JSONObject.update("includeText", true)))
                 .update("declarationProvider", true)

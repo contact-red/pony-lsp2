@@ -26,6 +26,11 @@ actor _LspTestServer is Channel
   let _opened: Set[String]
   let _in_flight: Map[I64, _PendingRequest]
   var _next_id: I64
+  var _auth: (FileAuth | None)
+    """
+    Set when the server is initialised, so that didOpen can send the
+    document's real contents.
+    """
 
   new create(workspace_dir: String) =>
     _workspace_dir = workspace_dir
@@ -38,6 +43,7 @@ actor _LspTestServer is Channel
     // id 0 = initialize request; ids 1-99 reserved for server-originated
     // requests (e.g. client/registerCapability, workspace/configuration).
     _next_id = 100
+    _auth = None
 
   be request(
     h: TestHelper,
@@ -59,6 +65,7 @@ actor _LspTestServer is Channel
     if not _initialized then
       _initialized = true
       let ponyc = try h.env.args(0)? else "" end
+      _auth = FileAuth(h.env.root)
       let proto =
         BaseProtocol(LanguageServer(this, h.env, PonyCompiler("", ponyc)))
       _server = proto
@@ -155,6 +162,22 @@ actor _LspTestServer is Channel
     _in_flight.clear()
 
   fun ref _did_open(file_path: String) =>
+    """
+    Open a document the way a client does, with its whole contents.
+
+    Sending an empty string here would leave the server holding an empty
+    buffer for every file in every suite, and anything that answered from
+    a buffer would be answering about nothing at all -- while still
+    passing, because an empty document has no symbols to disagree about.
+    """
+    let text: String val =
+      try
+        let auth = _auth as FileAuth
+        let file = OpenFile(FilePath(auth, file_path)) as File
+        recover val String.from_array(file.read(file.size())) end
+      else
+        ""
+      end
     try
       (_server as BaseProtocol)(
         Notification(
@@ -165,7 +188,34 @@ actor _LspTestServer is Channel
               .update("uri", Uris.from_path(file_path))
               .update("languageId", "pony")
               .update("version", I64(1))
-              .update("text", ""))
+              .update("text", text))
+        ).into_bytes())
+    end
+
+  be change(
+    h: TestHelper,
+    workspace_file: String,
+    text: String val,
+    version: I64)
+  =>
+    """
+    Send a textDocument/didChange, as a client does after an edit. Full
+    sync, so the whole document goes with it.
+    """
+    let file_path = Path.join(_workspace_dir, workspace_file)
+    try
+      (_server as BaseProtocol)(
+        Notification(
+          Methods.text_document().did_change(),
+          JSONObject
+            .update(
+              "textDocument",
+              JSONObject
+                .update("uri", Uris.from_path(file_path))
+                .update("version", version))
+            .update(
+              "contentChanges",
+              JSONArray.push(JSONObject.update("text", text)))
         ).into_bytes())
     end
 

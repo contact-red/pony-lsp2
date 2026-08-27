@@ -124,6 +124,9 @@ primitive TextDocumentMethods
   fun diagnostic(): String val =>
     "textDocument/diagnostic"
 
+  fun did_change(): String val =>
+    "textDocument/didChange"
+
   fun did_close(): String val =>
     "textDocument/didClose"
 

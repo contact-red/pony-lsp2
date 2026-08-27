@@ -131,6 +131,26 @@ class DocumentState
   var _hash: FromCompilerRun[USize]
   var _compiler_run_id: USize
 
+  var _text: (String val | None)
+    """
+    The document as the client has it, which stops being what is on disk
+    the moment someone types. `None` until a didOpen or a didChange
+    supplies it.
+    """
+  var _text_version: USize
+    """
+    Which text this is, assigned here and never repeated.
+
+    Not the client's version. That one restarts at 1 when a document is
+    closed and reopened, so anything scoped to a client version could pass
+    a check against different text.
+    """
+  var _client_version: I64
+    """
+    The client's version of the text held, used only to drop a
+    notification that arrives after a newer one.
+    """
+
   new create(path': String, channel': Channel) =>
     path = path'
     _channel = channel'
@@ -140,6 +160,9 @@ class DocumentState
     _document_symbols = _document_symbols.empty()
     _hash = _hash.empty()
     _compiler_run_id = 0
+    _text = None
+    _text_version = 0
+    _client_version = -1
 
   fun ref update(run_id: USize, module': Module val) =>
     if run_id >= _compiler_run_id then
@@ -154,6 +177,38 @@ class DocumentState
           .create(run_id, DocumentSymbols.from_module(module', _channel))
       _hash.update(run_id, module'.hash())
     end
+
+  fun ref set_text(text': String val, client_version': I64): Bool =>
+    """
+    Take the client's text as the current state of this document.
+
+    Refuses a notification the client marks as older than the one already
+    held, which is what stops an out-of-order delivery replacing newer text
+    with older. Returns whether the text was taken.
+    """
+    if (_text isnt None) and (client_version' < _client_version) then
+      _channel.log("ignoring out-of-order change for " + path +
+        ": version " + client_version'.string() + " after " +
+        _client_version.string())
+      return false
+    end
+    _text = text'
+    _client_version = client_version'
+    _text_version = _text_version + 1
+    true
+
+  fun box text(): (String val | None) =>
+    """
+    The document as the client has it, or `None` if the client has never
+    said -- in which case what is on disk is all there is to go on.
+    """
+    _text
+
+  fun box text_version(): USize =>
+    """
+    Which text `text` is. Zero when there has never been one.
+    """
+    _text_version
 
   fun ref add_diagnostic(run_id: USize, diagnostic: Diagnostic) =>
     // also accept diagnostics from the last/current run,

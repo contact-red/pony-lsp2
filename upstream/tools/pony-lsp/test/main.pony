@@ -17,6 +17,7 @@ actor \nodoc\ Main is TestList
     Run all pony-lsp test suites.
     """
     test(_InitializeTest)
+    test(_AdvertisesFullTextSyncTest)
     test(_WorkspaceConfigurationTest)
     test(_DidChangeConfigurationTest)
     test(_DidChangeConfigurationNullTest)
@@ -74,6 +75,57 @@ class \nodoc\ iso _InitializeTest is UnitTest
     let workspace_dir = Path.join(Path.dir(__loc.file()), "workspace")
     harness.send_to_server(LspMsg.initialize(workspace_dir)
     )
+
+class \nodoc\ iso _AdvertisesFullTextSyncTest is UnitTest
+  fun name(): String => "initialize/advertises full text sync"
+
+  fun apply(h: TestHelper) =>
+    """
+    The server must ask the client for didChange, or it never receives one.
+
+    This was 0 -- TextDocumentSyncKind.None -- which tells a client not to
+    send them at all. The missing handler was a consequence of that rather
+    than the cause: no client was ever going to call it.
+    """
+    h.long_test(10_000_000_000)
+
+    let harness =
+      TestHarness.create(
+        h,
+        TestCompiler(h),
+        object iso is MessageHandler
+          fun handle_request(
+            h: TestHelper,
+            req: RequestMessage val,
+            server: BaseProtocol)
+          =>
+            None
+        end,
+        {(h: TestHelper, harness: TestHarness ref): Bool =>
+          var checked = false
+          for msg in harness.sent.values() do
+            match msg
+            | let res: ResponseMessage val =>
+              try
+                let change =
+                  JSONPathParser.compile(
+                    "$.capabilities.textDocumentSync.change")?
+                    .query_one(res.result) as I64
+                h.assert_eq[I64](1, change,
+                  "the server does not ask for full text sync")
+                checked = true
+              end
+            end
+          end
+          h.assert_true(checked, "no initialize response to inspect")
+          h.complete(true)
+          true}
+        where
+          after_sends = 1,
+          after_logs = USize.max_value()
+      )
+    let workspace_dir = Path.join(Path.dir(__loc.file()), "workspace")
+    harness.send_to_server(LspMsg.initialize(workspace_dir))
 
 class \nodoc\ iso _WorkspaceConfigurationTest is UnitTest
   fun name(): String =>

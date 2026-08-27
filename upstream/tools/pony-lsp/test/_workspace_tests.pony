@@ -14,6 +14,9 @@ primitive \nodoc\ _WorkspaceTests is TestList
     test(_PackageStateRemoveDocumentMissingTest)
     test(_PackageStateDocumentPathsTest)
     test(_PackageStateDocumentStatesTest)
+    test(_DocumentStateHoldsTheBuffer)
+    test(_DocumentStateRefusesOlderText)
+    test(_DocumentStateVersionsAreItsOwn)
 
 class \nodoc\ iso _RouterFindTest is UnitTest
   fun name(): String => "router/find"
@@ -156,3 +159,64 @@ actor FakeChannel is Channel
 
   be dispose() =>
     None
+
+class \nodoc\ iso _DocumentStateHoldsTheBuffer is UnitTest
+  fun name(): String => "document_state/holds the buffer"
+
+  fun apply(h: TestHelper) ? =>
+    """
+    Until a client says otherwise there is no buffer, and what is on disk
+    is all there is to go on.
+    """
+    let doc = DocumentState("/tmp/x.pony", FakeChannel)
+    h.assert_is[(String val | None)](None, doc.text())
+    h.assert_eq[USize](0, doc.text_version())
+
+    h.assert_true(doc.set_text("class Foo", 1))
+    h.assert_eq[String]("class Foo", doc.text() as String val)
+    h.assert_eq[USize](1, doc.text_version())
+
+class \nodoc\ iso _DocumentStateRefusesOlderText is UnitTest
+  fun name(): String => "document_state/refuses older text"
+
+  fun apply(h: TestHelper) ? =>
+    """
+    Notifications can arrive out of order, and replacing newer text with
+    older would leave the server describing something the user has already
+    moved past.
+    """
+    let doc = DocumentState("/tmp/x.pony", FakeChannel)
+    h.assert_true(doc.set_text("second", 2))
+    h.assert_false(doc.set_text("first", 1), "an older version was taken")
+    h.assert_eq[String]("second", doc.text() as String val)
+
+    // The same version again is taken: a client that sends no version at
+    // all sends the same one every time, and refusing those would freeze
+    // the buffer at the first edit.
+    h.assert_true(doc.set_text("also second", 2))
+    h.assert_eq[String]("also second", doc.text() as String val)
+
+class \nodoc\ iso _DocumentStateVersionsAreItsOwn is UnitTest
+  fun name(): String => "document_state/versions are its own"
+
+  fun apply(h: TestHelper) ? =>
+    """
+    The text version is assigned here, advances on every text taken, and
+    never repeats. It is not the client's version, which restarts at 1 when
+    a document is reopened -- a reopen makes a fresh DocumentState, because
+    didClose removes the old one, so the two never have to be reconciled.
+
+    Refused text does not advance it either: a version that moved without
+    the text moving would say a buffer had changed when it had not.
+    """
+    let doc = DocumentState("/tmp/x.pony", FakeChannel)
+    doc.set_text("a", 1)
+    let first = doc.text_version()
+    doc.set_text("b", 2)
+    let second = doc.text_version()
+    h.assert_true(second > first, "the version did not advance")
+
+    doc.set_text("stale", 1)
+    h.assert_eq[USize](second, doc.text_version(),
+      "refused text advanced the version")
+    h.assert_eq[String]("b", doc.text() as String val)
