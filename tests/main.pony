@@ -13,3 +13,4 @@ actor \nodoc\ Main is TestList
     Run all pony_syntax test suites.
     """
     _TokenKindTests.tests(test)
+    _LexerTests.tests(test)

@@ -71,12 +71,16 @@ def main(lexer_c):
     w("")
 
     entries = []  # (pony name, fixed text or None, docstring)
+    tk_of = {}    # pony name -> ponyc's TK_ name, for agreement checking
     for text, tk in symbols:
         entries.append((camel(tk), text, "The `%s` symbol." % text))
+        tk_of[camel(tk)] = tk
     for text, tk in keywords:
         entries.append((camel(tk), text, "The `%s` keyword." % text))
+        tk_of[camel(tk)] = tk
     for tk, desc in VARIABLE + EXTRA:
         entries.append((camel(tk), None, "%s." % desc.capitalize()))
+        tk_of[camel(tk)] = tk
 
     seen = {}
     for name, text, doc in entries:
@@ -88,6 +92,7 @@ def main(lexer_c):
         w("  %s" % doc)
         w('  """')
         w('  fun name(): String val => "%s"' % name)
+        w('  fun ponyc_name(): String val => "%s"' % tk_of[name])
         if text is None:
             w("  fun text(): (String val | None) => None")
         else:

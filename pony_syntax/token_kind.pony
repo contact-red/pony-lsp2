@@ -10,6 +10,7 @@ primitive TkEllipsis
   The `...` symbol.
   """
   fun name(): String val => "TkEllipsis"
+  fun ponyc_name(): String val => "TK_ELLIPSIS"
   fun text(): (String val | None) => "..."
 
 primitive TkArrow
@@ -17,6 +18,7 @@ primitive TkArrow
   The `->` symbol.
   """
   fun name(): String val => "TkArrow"
+  fun ponyc_name(): String val => "TK_ARROW"
   fun text(): (String val | None) => "->"
 
 primitive TkDblarrow
@@ -24,6 +26,7 @@ primitive TkDblarrow
   The `=>` symbol.
   """
   fun name(): String val => "TkDblarrow"
+  fun ponyc_name(): String val => "TK_DBLARROW"
   fun text(): (String val | None) => "=>"
 
 primitive TkLshiftTilde
@@ -31,6 +34,7 @@ primitive TkLshiftTilde
   The `<<~` symbol.
   """
   fun name(): String val => "TkLshiftTilde"
+  fun ponyc_name(): String val => "TK_LSHIFT_TILDE"
   fun text(): (String val | None) => "<<~"
 
 primitive TkRshiftTilde
@@ -38,6 +42,7 @@ primitive TkRshiftTilde
   The `>>~` symbol.
   """
   fun name(): String val => "TkRshiftTilde"
+  fun ponyc_name(): String val => "TK_RSHIFT_TILDE"
   fun text(): (String val | None) => ">>~"
 
 primitive TkEqTilde
@@ -45,6 +50,7 @@ primitive TkEqTilde
   The `==~` symbol.
   """
   fun name(): String val => "TkEqTilde"
+  fun ponyc_name(): String val => "TK_EQ_TILDE"
   fun text(): (String val | None) => "==~"
 
 primitive TkNeTilde
@@ -52,6 +58,7 @@ primitive TkNeTilde
   The `!=~` symbol.
   """
   fun name(): String val => "TkNeTilde"
+  fun ponyc_name(): String val => "TK_NE_TILDE"
   fun text(): (String val | None) => "!=~"
 
 primitive TkLeTilde
@@ -59,6 +66,7 @@ primitive TkLeTilde
   The `<=~` symbol.
   """
   fun name(): String val => "TkLeTilde"
+  fun ponyc_name(): String val => "TK_LE_TILDE"
   fun text(): (String val | None) => "<=~"
 
 primitive TkGeTilde
@@ -66,6 +74,7 @@ primitive TkGeTilde
   The `>=~` symbol.
   """
   fun name(): String val => "TkGeTilde"
+  fun ponyc_name(): String val => "TK_GE_TILDE"
   fun text(): (String val | None) => ">=~"
 
 primitive TkLtTilde
@@ -73,6 +82,7 @@ primitive TkLtTilde
   The `<~` symbol.
   """
   fun name(): String val => "TkLtTilde"
+  fun ponyc_name(): String val => "TK_LT_TILDE"
   fun text(): (String val | None) => "<~"
 
 primitive TkGtTilde
@@ -80,6 +90,7 @@ primitive TkGtTilde
   The `>~` symbol.
   """
   fun name(): String val => "TkGtTilde"
+  fun ponyc_name(): String val => "TK_GT_TILDE"
   fun text(): (String val | None) => ">~"
 
 primitive TkPlusTilde
@@ -87,6 +98,7 @@ primitive TkPlusTilde
   The `+~` symbol.
   """
   fun name(): String val => "TkPlusTilde"
+  fun ponyc_name(): String val => "TK_PLUS_TILDE"
   fun text(): (String val | None) => "+~"
 
 primitive TkMinusTilde
@@ -94,6 +106,7 @@ primitive TkMinusTilde
   The `-~` symbol.
   """
   fun name(): String val => "TkMinusTilde"
+  fun ponyc_name(): String val => "TK_MINUS_TILDE"
   fun text(): (String val | None) => "-~"
 
 primitive TkMultiplyTilde
@@ -101,6 +114,7 @@ primitive TkMultiplyTilde
   The `*~` symbol.
   """
   fun name(): String val => "TkMultiplyTilde"
+  fun ponyc_name(): String val => "TK_MULTIPLY_TILDE"
   fun text(): (String val | None) => "*~"
 
 primitive TkDivideTilde
@@ -108,6 +122,7 @@ primitive TkDivideTilde
   The `/~` symbol.
   """
   fun name(): String val => "TkDivideTilde"
+  fun ponyc_name(): String val => "TK_DIVIDE_TILDE"
   fun text(): (String val | None) => "/~"
 
 primitive TkModTilde
@@ -115,6 +130,7 @@ primitive TkModTilde
   The `%%~` symbol.
   """
   fun name(): String val => "TkModTilde"
+  fun ponyc_name(): String val => "TK_MOD_TILDE"
   fun text(): (String val | None) => "%%~"
 
 primitive TkRemTilde
@@ -122,6 +138,7 @@ primitive TkRemTilde
   The `%~` symbol.
   """
   fun name(): String val => "TkRemTilde"
+  fun ponyc_name(): String val => "TK_REM_TILDE"
   fun text(): (String val | None) => "%~"
 
 primitive TkLshift
@@ -129,6 +146,7 @@ primitive TkLshift
   The `<<` symbol.
   """
   fun name(): String val => "TkLshift"
+  fun ponyc_name(): String val => "TK_LSHIFT"
   fun text(): (String val | None) => "<<"
 
 primitive TkRshift
@@ -136,6 +154,7 @@ primitive TkRshift
   The `>>` symbol.
   """
   fun name(): String val => "TkRshift"
+  fun ponyc_name(): String val => "TK_RSHIFT"
   fun text(): (String val | None) => ">>"
 
 primitive TkEq
@@ -143,6 +162,7 @@ primitive TkEq
   The `==` symbol.
   """
   fun name(): String val => "TkEq"
+  fun ponyc_name(): String val => "TK_EQ"
   fun text(): (String val | None) => "=="
 
 primitive TkNe
@@ -150,6 +170,7 @@ primitive TkNe
   The `!=` symbol.
   """
   fun name(): String val => "TkNe"
+  fun ponyc_name(): String val => "TK_NE"
   fun text(): (String val | None) => "!="
 
 primitive TkLe
@@ -157,6 +178,7 @@ primitive TkLe
   The `<=` symbol.
   """
   fun name(): String val => "TkLe"
+  fun ponyc_name(): String val => "TK_LE"
   fun text(): (String val | None) => "<="
 
 primitive TkGe
@@ -164,6 +186,7 @@ primitive TkGe
   The `>=` symbol.
   """
   fun name(): String val => "TkGe"
+  fun ponyc_name(): String val => "TK_GE"
   fun text(): (String val | None) => ">="
 
 primitive TkChain
@@ -171,6 +194,7 @@ primitive TkChain
   The `.>` symbol.
   """
   fun name(): String val => "TkChain"
+  fun ponyc_name(): String val => "TK_CHAIN"
   fun text(): (String val | None) => ".>"
 
 primitive TkSubtype
@@ -178,6 +202,7 @@ primitive TkSubtype
   The `<:` symbol.
   """
   fun name(): String val => "TkSubtype"
+  fun ponyc_name(): String val => "TK_SUBTYPE"
   fun text(): (String val | None) => "<:"
 
 primitive TkBackslash
@@ -185,6 +210,7 @@ primitive TkBackslash
   The `\` symbol.
   """
   fun name(): String val => "TkBackslash"
+  fun ponyc_name(): String val => "TK_BACKSLASH"
   fun text(): (String val | None) => "\\"
 
 primitive TkAtLbrace
@@ -192,6 +218,7 @@ primitive TkAtLbrace
   The `@{` symbol.
   """
   fun name(): String val => "TkAtLbrace"
+  fun ponyc_name(): String val => "TK_AT_LBRACE"
   fun text(): (String val | None) => "@{"
 
 primitive TkLbrace
@@ -199,6 +226,7 @@ primitive TkLbrace
   The `{` symbol.
   """
   fun name(): String val => "TkLbrace"
+  fun ponyc_name(): String val => "TK_LBRACE"
   fun text(): (String val | None) => "{"
 
 primitive TkRbrace
@@ -206,6 +234,7 @@ primitive TkRbrace
   The `}` symbol.
   """
   fun name(): String val => "TkRbrace"
+  fun ponyc_name(): String val => "TK_RBRACE"
   fun text(): (String val | None) => "}"
 
 primitive TkLparen
@@ -213,6 +242,7 @@ primitive TkLparen
   The `(` symbol.
   """
   fun name(): String val => "TkLparen"
+  fun ponyc_name(): String val => "TK_LPAREN"
   fun text(): (String val | None) => "("
 
 primitive TkRparen
@@ -220,6 +250,7 @@ primitive TkRparen
   The `)` symbol.
   """
   fun name(): String val => "TkRparen"
+  fun ponyc_name(): String val => "TK_RPAREN"
   fun text(): (String val | None) => ")"
 
 primitive TkLsquare
@@ -227,6 +258,7 @@ primitive TkLsquare
   The `[` symbol.
   """
   fun name(): String val => "TkLsquare"
+  fun ponyc_name(): String val => "TK_LSQUARE"
   fun text(): (String val | None) => "["
 
 primitive TkRsquare
@@ -234,6 +266,7 @@ primitive TkRsquare
   The `]` symbol.
   """
   fun name(): String val => "TkRsquare"
+  fun ponyc_name(): String val => "TK_RSQUARE"
   fun text(): (String val | None) => "]"
 
 primitive TkComma
@@ -241,6 +274,7 @@ primitive TkComma
   The `,` symbol.
   """
   fun name(): String val => "TkComma"
+  fun ponyc_name(): String val => "TK_COMMA"
   fun text(): (String val | None) => ","
 
 primitive TkDot
@@ -248,6 +282,7 @@ primitive TkDot
   The `.` symbol.
   """
   fun name(): String val => "TkDot"
+  fun ponyc_name(): String val => "TK_DOT"
   fun text(): (String val | None) => "."
 
 primitive TkTilde
@@ -255,6 +290,7 @@ primitive TkTilde
   The `~` symbol.
   """
   fun name(): String val => "TkTilde"
+  fun ponyc_name(): String val => "TK_TILDE"
   fun text(): (String val | None) => "~"
 
 primitive TkColon
@@ -262,6 +298,7 @@ primitive TkColon
   The `:` symbol.
   """
   fun name(): String val => "TkColon"
+  fun ponyc_name(): String val => "TK_COLON"
   fun text(): (String val | None) => ":"
 
 primitive TkSemi
@@ -269,6 +306,7 @@ primitive TkSemi
   The `;` symbol.
   """
   fun name(): String val => "TkSemi"
+  fun ponyc_name(): String val => "TK_SEMI"
   fun text(): (String val | None) => ";"
 
 primitive TkAssign
@@ -276,6 +314,7 @@ primitive TkAssign
   The `=` symbol.
   """
   fun name(): String val => "TkAssign"
+  fun ponyc_name(): String val => "TK_ASSIGN"
   fun text(): (String val | None) => "="
 
 primitive TkPlus
@@ -283,6 +322,7 @@ primitive TkPlus
   The `+` symbol.
   """
   fun name(): String val => "TkPlus"
+  fun ponyc_name(): String val => "TK_PLUS"
   fun text(): (String val | None) => "+"
 
 primitive TkMinus
@@ -290,6 +330,7 @@ primitive TkMinus
   The `-` symbol.
   """
   fun name(): String val => "TkMinus"
+  fun ponyc_name(): String val => "TK_MINUS"
   fun text(): (String val | None) => "-"
 
 primitive TkMultiply
@@ -297,6 +338,7 @@ primitive TkMultiply
   The `*` symbol.
   """
   fun name(): String val => "TkMultiply"
+  fun ponyc_name(): String val => "TK_MULTIPLY"
   fun text(): (String val | None) => "*"
 
 primitive TkDivide
@@ -304,6 +346,7 @@ primitive TkDivide
   The `/` symbol.
   """
   fun name(): String val => "TkDivide"
+  fun ponyc_name(): String val => "TK_DIVIDE"
   fun text(): (String val | None) => "/"
 
 primitive TkMod
@@ -311,6 +354,7 @@ primitive TkMod
   The `%%` symbol.
   """
   fun name(): String val => "TkMod"
+  fun ponyc_name(): String val => "TK_MOD"
   fun text(): (String val | None) => "%%"
 
 primitive TkRem
@@ -318,6 +362,7 @@ primitive TkRem
   The `%` symbol.
   """
   fun name(): String val => "TkRem"
+  fun ponyc_name(): String val => "TK_REM"
   fun text(): (String val | None) => "%"
 
 primitive TkAt
@@ -325,6 +370,7 @@ primitive TkAt
   The `@` symbol.
   """
   fun name(): String val => "TkAt"
+  fun ponyc_name(): String val => "TK_AT"
   fun text(): (String val | None) => "@"
 
 primitive TkLt
@@ -332,6 +378,7 @@ primitive TkLt
   The `<` symbol.
   """
   fun name(): String val => "TkLt"
+  fun ponyc_name(): String val => "TK_LT"
   fun text(): (String val | None) => "<"
 
 primitive TkGt
@@ -339,6 +386,7 @@ primitive TkGt
   The `>` symbol.
   """
   fun name(): String val => "TkGt"
+  fun ponyc_name(): String val => "TK_GT"
   fun text(): (String val | None) => ">"
 
 primitive TkPipe
@@ -346,6 +394,7 @@ primitive TkPipe
   The `|` symbol.
   """
   fun name(): String val => "TkPipe"
+  fun ponyc_name(): String val => "TK_PIPE"
   fun text(): (String val | None) => "|"
 
 primitive TkIsecttype
@@ -353,6 +402,7 @@ primitive TkIsecttype
   The `&` symbol.
   """
   fun name(): String val => "TkIsecttype"
+  fun ponyc_name(): String val => "TK_ISECTTYPE"
   fun text(): (String val | None) => "&"
 
 primitive TkEphemeral
@@ -360,6 +410,7 @@ primitive TkEphemeral
   The `^` symbol.
   """
   fun name(): String val => "TkEphemeral"
+  fun ponyc_name(): String val => "TK_EPHEMERAL"
   fun text(): (String val | None) => "^"
 
 primitive TkAliased
@@ -367,6 +418,7 @@ primitive TkAliased
   The `!` symbol.
   """
   fun name(): String val => "TkAliased"
+  fun ponyc_name(): String val => "TK_ALIASED"
   fun text(): (String val | None) => "!"
 
 primitive TkQuestion
@@ -374,6 +426,7 @@ primitive TkQuestion
   The `?` symbol.
   """
   fun name(): String val => "TkQuestion"
+  fun ponyc_name(): String val => "TK_QUESTION"
   fun text(): (String val | None) => "?"
 
 primitive TkUnaryMinus
@@ -381,6 +434,7 @@ primitive TkUnaryMinus
   The `-` symbol.
   """
   fun name(): String val => "TkUnaryMinus"
+  fun ponyc_name(): String val => "TK_UNARY_MINUS"
   fun text(): (String val | None) => "-"
 
 primitive TkConstant
@@ -388,6 +442,7 @@ primitive TkConstant
   The `#` symbol.
   """
   fun name(): String val => "TkConstant"
+  fun ponyc_name(): String val => "TK_CONSTANT"
   fun text(): (String val | None) => "#"
 
 primitive TkLparenNew
@@ -395,6 +450,7 @@ primitive TkLparenNew
   The `(` symbol.
   """
   fun name(): String val => "TkLparenNew"
+  fun ponyc_name(): String val => "TK_LPAREN_NEW"
   fun text(): (String val | None) => "("
 
 primitive TkLsquareNew
@@ -402,6 +458,7 @@ primitive TkLsquareNew
   The `[` symbol.
   """
   fun name(): String val => "TkLsquareNew"
+  fun ponyc_name(): String val => "TK_LSQUARE_NEW"
   fun text(): (String val | None) => "["
 
 primitive TkMinusTildeNew
@@ -409,6 +466,7 @@ primitive TkMinusTildeNew
   The `-~` symbol.
   """
   fun name(): String val => "TkMinusTildeNew"
+  fun ponyc_name(): String val => "TK_MINUS_TILDE_NEW"
   fun text(): (String val | None) => "-~"
 
 primitive TkMinusNew
@@ -416,6 +474,7 @@ primitive TkMinusNew
   The `-` symbol.
   """
   fun name(): String val => "TkMinusNew"
+  fun ponyc_name(): String val => "TK_MINUS_NEW"
   fun text(): (String val | None) => "-"
 
 primitive TkCompileIntrinsic
@@ -423,6 +482,7 @@ primitive TkCompileIntrinsic
   The `compile_intrinsic` keyword.
   """
   fun name(): String val => "TkCompileIntrinsic"
+  fun ponyc_name(): String val => "TK_COMPILE_INTRINSIC"
   fun text(): (String val | None) => "compile_intrinsic"
 
 primitive TkUse
@@ -430,6 +490,7 @@ primitive TkUse
   The `use` keyword.
   """
   fun name(): String val => "TkUse"
+  fun ponyc_name(): String val => "TK_USE"
   fun text(): (String val | None) => "use"
 
 primitive TkType
@@ -437,6 +498,7 @@ primitive TkType
   The `type` keyword.
   """
   fun name(): String val => "TkType"
+  fun ponyc_name(): String val => "TK_TYPE"
   fun text(): (String val | None) => "type"
 
 primitive TkInterface
@@ -444,6 +506,7 @@ primitive TkInterface
   The `interface` keyword.
   """
   fun name(): String val => "TkInterface"
+  fun ponyc_name(): String val => "TK_INTERFACE"
   fun text(): (String val | None) => "interface"
 
 primitive TkTrait
@@ -451,6 +514,7 @@ primitive TkTrait
   The `trait` keyword.
   """
   fun name(): String val => "TkTrait"
+  fun ponyc_name(): String val => "TK_TRAIT"
   fun text(): (String val | None) => "trait"
 
 primitive TkPrimitive
@@ -458,6 +522,7 @@ primitive TkPrimitive
   The `primitive` keyword.
   """
   fun name(): String val => "TkPrimitive"
+  fun ponyc_name(): String val => "TK_PRIMITIVE"
   fun text(): (String val | None) => "primitive"
 
 primitive TkStruct
@@ -465,6 +530,7 @@ primitive TkStruct
   The `struct` keyword.
   """
   fun name(): String val => "TkStruct"
+  fun ponyc_name(): String val => "TK_STRUCT"
   fun text(): (String val | None) => "struct"
 
 primitive TkClass
@@ -472,6 +538,7 @@ primitive TkClass
   The `class` keyword.
   """
   fun name(): String val => "TkClass"
+  fun ponyc_name(): String val => "TK_CLASS"
   fun text(): (String val | None) => "class"
 
 primitive TkActor
@@ -479,6 +546,7 @@ primitive TkActor
   The `actor` keyword.
   """
   fun name(): String val => "TkActor"
+  fun ponyc_name(): String val => "TK_ACTOR"
   fun text(): (String val | None) => "actor"
 
 primitive TkObject
@@ -486,6 +554,7 @@ primitive TkObject
   The `object` keyword.
   """
   fun name(): String val => "TkObject"
+  fun ponyc_name(): String val => "TK_OBJECT"
   fun text(): (String val | None) => "object"
 
 primitive TkAs
@@ -493,6 +562,7 @@ primitive TkAs
   The `as` keyword.
   """
   fun name(): String val => "TkAs"
+  fun ponyc_name(): String val => "TK_AS"
   fun text(): (String val | None) => "as"
 
 primitive TkIs
@@ -500,6 +570,7 @@ primitive TkIs
   The `is` keyword.
   """
   fun name(): String val => "TkIs"
+  fun ponyc_name(): String val => "TK_IS"
   fun text(): (String val | None) => "is"
 
 primitive TkIsnt
@@ -507,6 +578,7 @@ primitive TkIsnt
   The `isnt` keyword.
   """
   fun name(): String val => "TkIsnt"
+  fun ponyc_name(): String val => "TK_ISNT"
   fun text(): (String val | None) => "isnt"
 
 primitive TkVar
@@ -514,6 +586,7 @@ primitive TkVar
   The `var` keyword.
   """
   fun name(): String val => "TkVar"
+  fun ponyc_name(): String val => "TK_VAR"
   fun text(): (String val | None) => "var"
 
 primitive TkLet
@@ -521,6 +594,7 @@ primitive TkLet
   The `let` keyword.
   """
   fun name(): String val => "TkLet"
+  fun ponyc_name(): String val => "TK_LET"
   fun text(): (String val | None) => "let"
 
 primitive TkEmbed
@@ -528,6 +602,7 @@ primitive TkEmbed
   The `embed` keyword.
   """
   fun name(): String val => "TkEmbed"
+  fun ponyc_name(): String val => "TK_EMBED"
   fun text(): (String val | None) => "embed"
 
 primitive TkNew
@@ -535,6 +610,7 @@ primitive TkNew
   The `new` keyword.
   """
   fun name(): String val => "TkNew"
+  fun ponyc_name(): String val => "TK_NEW"
   fun text(): (String val | None) => "new"
 
 primitive TkFun
@@ -542,6 +618,7 @@ primitive TkFun
   The `fun` keyword.
   """
   fun name(): String val => "TkFun"
+  fun ponyc_name(): String val => "TK_FUN"
   fun text(): (String val | None) => "fun"
 
 primitive TkBe
@@ -549,6 +626,7 @@ primitive TkBe
   The `be` keyword.
   """
   fun name(): String val => "TkBe"
+  fun ponyc_name(): String val => "TK_BE"
   fun text(): (String val | None) => "be"
 
 primitive TkIso
@@ -556,6 +634,7 @@ primitive TkIso
   The `iso` keyword.
   """
   fun name(): String val => "TkIso"
+  fun ponyc_name(): String val => "TK_ISO"
   fun text(): (String val | None) => "iso"
 
 primitive TkTrn
@@ -563,6 +642,7 @@ primitive TkTrn
   The `trn` keyword.
   """
   fun name(): String val => "TkTrn"
+  fun ponyc_name(): String val => "TK_TRN"
   fun text(): (String val | None) => "trn"
 
 primitive TkRef
@@ -570,6 +650,7 @@ primitive TkRef
   The `ref` keyword.
   """
   fun name(): String val => "TkRef"
+  fun ponyc_name(): String val => "TK_REF"
   fun text(): (String val | None) => "ref"
 
 primitive TkVal
@@ -577,6 +658,7 @@ primitive TkVal
   The `val` keyword.
   """
   fun name(): String val => "TkVal"
+  fun ponyc_name(): String val => "TK_VAL"
   fun text(): (String val | None) => "val"
 
 primitive TkBox
@@ -584,6 +666,7 @@ primitive TkBox
   The `box` keyword.
   """
   fun name(): String val => "TkBox"
+  fun ponyc_name(): String val => "TK_BOX"
   fun text(): (String val | None) => "box"
 
 primitive TkTag
@@ -591,6 +674,7 @@ primitive TkTag
   The `tag` keyword.
   """
   fun name(): String val => "TkTag"
+  fun ponyc_name(): String val => "TK_TAG"
   fun text(): (String val | None) => "tag"
 
 primitive TkThis
@@ -598,6 +682,7 @@ primitive TkThis
   The `this` keyword.
   """
   fun name(): String val => "TkThis"
+  fun ponyc_name(): String val => "TK_THIS"
   fun text(): (String val | None) => "this"
 
 primitive TkReturn
@@ -605,6 +690,7 @@ primitive TkReturn
   The `return` keyword.
   """
   fun name(): String val => "TkReturn"
+  fun ponyc_name(): String val => "TK_RETURN"
   fun text(): (String val | None) => "return"
 
 primitive TkBreak
@@ -612,6 +698,7 @@ primitive TkBreak
   The `break` keyword.
   """
   fun name(): String val => "TkBreak"
+  fun ponyc_name(): String val => "TK_BREAK"
   fun text(): (String val | None) => "break"
 
 primitive TkContinue
@@ -619,6 +706,7 @@ primitive TkContinue
   The `continue` keyword.
   """
   fun name(): String val => "TkContinue"
+  fun ponyc_name(): String val => "TK_CONTINUE"
   fun text(): (String val | None) => "continue"
 
 primitive TkConsume
@@ -626,6 +714,7 @@ primitive TkConsume
   The `consume` keyword.
   """
   fun name(): String val => "TkConsume"
+  fun ponyc_name(): String val => "TK_CONSUME"
   fun text(): (String val | None) => "consume"
 
 primitive TkRecover
@@ -633,6 +722,7 @@ primitive TkRecover
   The `recover` keyword.
   """
   fun name(): String val => "TkRecover"
+  fun ponyc_name(): String val => "TK_RECOVER"
   fun text(): (String val | None) => "recover"
 
 primitive TkIf
@@ -640,6 +730,7 @@ primitive TkIf
   The `if` keyword.
   """
   fun name(): String val => "TkIf"
+  fun ponyc_name(): String val => "TK_IF"
   fun text(): (String val | None) => "if"
 
 primitive TkIfdef
@@ -647,6 +738,7 @@ primitive TkIfdef
   The `ifdef` keyword.
   """
   fun name(): String val => "TkIfdef"
+  fun ponyc_name(): String val => "TK_IFDEF"
   fun text(): (String val | None) => "ifdef"
 
 primitive TkIftypeSet
@@ -654,6 +746,7 @@ primitive TkIftypeSet
   The `iftype` keyword.
   """
   fun name(): String val => "TkIftypeSet"
+  fun ponyc_name(): String val => "TK_IFTYPE_SET"
   fun text(): (String val | None) => "iftype"
 
 primitive TkThen
@@ -661,6 +754,7 @@ primitive TkThen
   The `then` keyword.
   """
   fun name(): String val => "TkThen"
+  fun ponyc_name(): String val => "TK_THEN"
   fun text(): (String val | None) => "then"
 
 primitive TkElse
@@ -668,6 +762,7 @@ primitive TkElse
   The `else` keyword.
   """
   fun name(): String val => "TkElse"
+  fun ponyc_name(): String val => "TK_ELSE"
   fun text(): (String val | None) => "else"
 
 primitive TkElseif
@@ -675,6 +770,7 @@ primitive TkElseif
   The `elseif` keyword.
   """
   fun name(): String val => "TkElseif"
+  fun ponyc_name(): String val => "TK_ELSEIF"
   fun text(): (String val | None) => "elseif"
 
 primitive TkEnd
@@ -682,6 +778,7 @@ primitive TkEnd
   The `end` keyword.
   """
   fun name(): String val => "TkEnd"
+  fun ponyc_name(): String val => "TK_END"
   fun text(): (String val | None) => "end"
 
 primitive TkFor
@@ -689,6 +786,7 @@ primitive TkFor
   The `for` keyword.
   """
   fun name(): String val => "TkFor"
+  fun ponyc_name(): String val => "TK_FOR"
   fun text(): (String val | None) => "for"
 
 primitive TkIn
@@ -696,6 +794,7 @@ primitive TkIn
   The `in` keyword.
   """
   fun name(): String val => "TkIn"
+  fun ponyc_name(): String val => "TK_IN"
   fun text(): (String val | None) => "in"
 
 primitive TkWhile
@@ -703,6 +802,7 @@ primitive TkWhile
   The `while` keyword.
   """
   fun name(): String val => "TkWhile"
+  fun ponyc_name(): String val => "TK_WHILE"
   fun text(): (String val | None) => "while"
 
 primitive TkDo
@@ -710,6 +810,7 @@ primitive TkDo
   The `do` keyword.
   """
   fun name(): String val => "TkDo"
+  fun ponyc_name(): String val => "TK_DO"
   fun text(): (String val | None) => "do"
 
 primitive TkRepeat
@@ -717,6 +818,7 @@ primitive TkRepeat
   The `repeat` keyword.
   """
   fun name(): String val => "TkRepeat"
+  fun ponyc_name(): String val => "TK_REPEAT"
   fun text(): (String val | None) => "repeat"
 
 primitive TkUntil
@@ -724,6 +826,7 @@ primitive TkUntil
   The `until` keyword.
   """
   fun name(): String val => "TkUntil"
+  fun ponyc_name(): String val => "TK_UNTIL"
   fun text(): (String val | None) => "until"
 
 primitive TkMatch
@@ -731,6 +834,7 @@ primitive TkMatch
   The `match` keyword.
   """
   fun name(): String val => "TkMatch"
+  fun ponyc_name(): String val => "TK_MATCH"
   fun text(): (String val | None) => "match"
 
 primitive TkWhere
@@ -738,6 +842,7 @@ primitive TkWhere
   The `where` keyword.
   """
   fun name(): String val => "TkWhere"
+  fun ponyc_name(): String val => "TK_WHERE"
   fun text(): (String val | None) => "where"
 
 primitive TkTry
@@ -745,6 +850,7 @@ primitive TkTry
   The `try` keyword.
   """
   fun name(): String val => "TkTry"
+  fun ponyc_name(): String val => "TK_TRY"
   fun text(): (String val | None) => "try"
 
 primitive TkWith
@@ -752,6 +858,7 @@ primitive TkWith
   The `with` keyword.
   """
   fun name(): String val => "TkWith"
+  fun ponyc_name(): String val => "TK_WITH"
   fun text(): (String val | None) => "with"
 
 primitive TkError
@@ -759,6 +866,7 @@ primitive TkError
   The `error` keyword.
   """
   fun name(): String val => "TkError"
+  fun ponyc_name(): String val => "TK_ERROR"
   fun text(): (String val | None) => "error"
 
 primitive TkCompileError
@@ -766,6 +874,7 @@ primitive TkCompileError
   The `compile_error` keyword.
   """
   fun name(): String val => "TkCompileError"
+  fun ponyc_name(): String val => "TK_COMPILE_ERROR"
   fun text(): (String val | None) => "compile_error"
 
 primitive TkNot
@@ -773,6 +882,7 @@ primitive TkNot
   The `not` keyword.
   """
   fun name(): String val => "TkNot"
+  fun ponyc_name(): String val => "TK_NOT"
   fun text(): (String val | None) => "not"
 
 primitive TkAnd
@@ -780,6 +890,7 @@ primitive TkAnd
   The `and` keyword.
   """
   fun name(): String val => "TkAnd"
+  fun ponyc_name(): String val => "TK_AND"
   fun text(): (String val | None) => "and"
 
 primitive TkOr
@@ -787,6 +898,7 @@ primitive TkOr
   The `or` keyword.
   """
   fun name(): String val => "TkOr"
+  fun ponyc_name(): String val => "TK_OR"
   fun text(): (String val | None) => "or"
 
 primitive TkXor
@@ -794,6 +906,7 @@ primitive TkXor
   The `xor` keyword.
   """
   fun name(): String val => "TkXor"
+  fun ponyc_name(): String val => "TK_XOR"
   fun text(): (String val | None) => "xor"
 
 primitive TkDigestof
@@ -801,6 +914,7 @@ primitive TkDigestof
   The `digestof` keyword.
   """
   fun name(): String val => "TkDigestof"
+  fun ponyc_name(): String val => "TK_DIGESTOF"
   fun text(): (String val | None) => "digestof"
 
 primitive TkAddress
@@ -808,6 +922,7 @@ primitive TkAddress
   The `addressof` keyword.
   """
   fun name(): String val => "TkAddress"
+  fun ponyc_name(): String val => "TK_ADDRESS"
   fun text(): (String val | None) => "addressof"
 
 primitive TkLocation
@@ -815,6 +930,7 @@ primitive TkLocation
   The `__loc` keyword.
   """
   fun name(): String val => "TkLocation"
+  fun ponyc_name(): String val => "TK_LOCATION"
   fun text(): (String val | None) => "__loc"
 
 primitive TkTrue
@@ -822,6 +938,7 @@ primitive TkTrue
   The `true` keyword.
   """
   fun name(): String val => "TkTrue"
+  fun ponyc_name(): String val => "TK_TRUE"
   fun text(): (String val | None) => "true"
 
 primitive TkFalse
@@ -829,6 +946,7 @@ primitive TkFalse
   The `false` keyword.
   """
   fun name(): String val => "TkFalse"
+  fun ponyc_name(): String val => "TK_FALSE"
   fun text(): (String val | None) => "false"
 
 primitive TkCapRead
@@ -836,6 +954,7 @@ primitive TkCapRead
   The `#read` keyword.
   """
   fun name(): String val => "TkCapRead"
+  fun ponyc_name(): String val => "TK_CAP_READ"
   fun text(): (String val | None) => "#read"
 
 primitive TkCapSend
@@ -843,6 +962,7 @@ primitive TkCapSend
   The `#send` keyword.
   """
   fun name(): String val => "TkCapSend"
+  fun ponyc_name(): String val => "TK_CAP_SEND"
   fun text(): (String val | None) => "#send"
 
 primitive TkCapShare
@@ -850,6 +970,7 @@ primitive TkCapShare
   The `#share` keyword.
   """
   fun name(): String val => "TkCapShare"
+  fun ponyc_name(): String val => "TK_CAP_SHARE"
   fun text(): (String val | None) => "#share"
 
 primitive TkCapAlias
@@ -857,6 +978,7 @@ primitive TkCapAlias
   The `#alias` keyword.
   """
   fun name(): String val => "TkCapAlias"
+  fun ponyc_name(): String val => "TK_CAP_ALIAS"
   fun text(): (String val | None) => "#alias"
 
 primitive TkCapAny
@@ -864,6 +986,7 @@ primitive TkCapAny
   The `#any` keyword.
   """
   fun name(): String val => "TkCapAny"
+  fun ponyc_name(): String val => "TK_CAP_ANY"
   fun text(): (String val | None) => "#any"
 
 primitive TkTestNoSeq
@@ -871,6 +994,7 @@ primitive TkTestNoSeq
   The `$noseq` keyword.
   """
   fun name(): String val => "TkTestNoSeq"
+  fun ponyc_name(): String val => "TK_TEST_NO_SEQ"
   fun text(): (String val | None) => "$noseq"
 
 primitive TkTestSeqScope
@@ -878,6 +1002,7 @@ primitive TkTestSeqScope
   The `$scope` keyword.
   """
   fun name(): String val => "TkTestSeqScope"
+  fun ponyc_name(): String val => "TK_TEST_SEQ_SCOPE"
   fun text(): (String val | None) => "$scope"
 
 primitive TkTestTryNoCheck
@@ -885,6 +1010,7 @@ primitive TkTestTryNoCheck
   The `$try_no_check` keyword.
   """
   fun name(): String val => "TkTestTryNoCheck"
+  fun ponyc_name(): String val => "TK_TEST_TRY_NO_CHECK"
   fun text(): (String val | None) => "$try_no_check"
 
 primitive TkTestAliased
@@ -892,6 +1018,7 @@ primitive TkTestAliased
   The `$aliased` keyword.
   """
   fun name(): String val => "TkTestAliased"
+  fun ponyc_name(): String val => "TK_TEST_ALIASED"
   fun text(): (String val | None) => "$aliased"
 
 primitive TkTestUpdatearg
@@ -899,6 +1026,7 @@ primitive TkTestUpdatearg
   The `$updatearg` keyword.
   """
   fun name(): String val => "TkTestUpdatearg"
+  fun ponyc_name(): String val => "TK_TEST_UPDATEARG"
   fun text(): (String val | None) => "$updatearg"
 
 primitive TkTestExtra
@@ -906,6 +1034,7 @@ primitive TkTestExtra
   The `$extra` keyword.
   """
   fun name(): String val => "TkTestExtra"
+  fun ponyc_name(): String val => "TK_TEST_EXTRA"
   fun text(): (String val | None) => "$extra"
 
 primitive TkIfdefand
@@ -913,6 +1042,7 @@ primitive TkIfdefand
   The `$ifdefand` keyword.
   """
   fun name(): String val => "TkIfdefand"
+  fun ponyc_name(): String val => "TK_IFDEFAND"
   fun text(): (String val | None) => "$ifdefand"
 
 primitive TkIfdefor
@@ -920,6 +1050,7 @@ primitive TkIfdefor
   The `$ifdefor` keyword.
   """
   fun name(): String val => "TkIfdefor"
+  fun ponyc_name(): String val => "TK_IFDEFOR"
   fun text(): (String val | None) => "$ifdefor"
 
 primitive TkIfdefnot
@@ -927,6 +1058,7 @@ primitive TkIfdefnot
   The `$ifdefnot` keyword.
   """
   fun name(): String val => "TkIfdefnot"
+  fun ponyc_name(): String val => "TK_IFDEFNOT"
   fun text(): (String val | None) => "$ifdefnot"
 
 primitive TkIfdefflag
@@ -934,6 +1066,7 @@ primitive TkIfdefflag
   The `$flag` keyword.
   """
   fun name(): String val => "TkIfdefflag"
+  fun ponyc_name(): String val => "TK_IFDEFFLAG"
   fun text(): (String val | None) => "$flag"
 
 primitive TkMatchCapture
@@ -941,6 +1074,7 @@ primitive TkMatchCapture
   The `$let` keyword.
   """
   fun name(): String val => "TkMatchCapture"
+  fun ponyc_name(): String val => "TK_MATCH_CAPTURE"
   fun text(): (String val | None) => "$let"
 
 primitive TkMatchDontcare
@@ -948,6 +1082,7 @@ primitive TkMatchDontcare
   The `$dontcare` keyword.
   """
   fun name(): String val => "TkMatchDontcare"
+  fun ponyc_name(): String val => "TK_MATCH_DONTCARE"
   fun text(): (String val | None) => "$dontcare"
 
 primitive TkIftype
@@ -955,6 +1090,7 @@ primitive TkIftype
   The `$iftype` keyword.
   """
   fun name(): String val => "TkIftype"
+  fun ponyc_name(): String val => "TK_IFTYPE"
   fun text(): (String val | None) => "$iftype"
 
 primitive TkId
@@ -962,6 +1098,7 @@ primitive TkId
   An identifier.
   """
   fun name(): String val => "TkId"
+  fun ponyc_name(): String val => "TK_ID"
   fun text(): (String val | None) => None
 
 primitive TkString
@@ -969,6 +1106,7 @@ primitive TkString
   A string literal.
   """
   fun name(): String val => "TkString"
+  fun ponyc_name(): String val => "TK_STRING"
   fun text(): (String val | None) => None
 
 primitive TkInt
@@ -976,6 +1114,7 @@ primitive TkInt
   An integer literal.
   """
   fun name(): String val => "TkInt"
+  fun ponyc_name(): String val => "TK_INT"
   fun text(): (String val | None) => None
 
 primitive TkFloat
@@ -983,6 +1122,7 @@ primitive TkFloat
   A float literal.
   """
   fun name(): String val => "TkFloat"
+  fun ponyc_name(): String val => "TK_FLOAT"
   fun text(): (String val | None) => None
 
 primitive TkWhitespace
@@ -990,6 +1130,7 @@ primitive TkWhitespace
   A run of spaces, tabs or newlines.
   """
   fun name(): String val => "TkWhitespace"
+  fun ponyc_name(): String val => "TK_WHITESPACE"
   fun text(): (String val | None) => None
 
 primitive TkLineComment
@@ -997,6 +1138,7 @@ primitive TkLineComment
   A `//` comment, up to but not including the newline.
   """
   fun name(): String val => "TkLineComment"
+  fun ponyc_name(): String val => "TK_LINE_COMMENT"
   fun text(): (String val | None) => None
 
 primitive TkNestedComment
@@ -1004,6 +1146,7 @@ primitive TkNestedComment
   A `/* */` comment, which may nest.
   """
   fun name(): String val => "TkNestedComment"
+  fun ponyc_name(): String val => "TK_NESTED_COMMENT"
   fun text(): (String val | None) => None
 
 primitive TkEof
@@ -1011,6 +1154,7 @@ primitive TkEof
   The end of the source.
   """
   fun name(): String val => "TkEof"
+  fun ponyc_name(): String val => "TK_EOF"
   fun text(): (String val | None) => None
 
 primitive TkLexError
@@ -1018,6 +1162,7 @@ primitive TkLexError
   Bytes the lexer could not interpret.
   """
   fun name(): String val => "TkLexError"
+  fun ponyc_name(): String val => "TK_LEX_ERROR"
   fun text(): (String val | None) => None
 
 type TokenKind is

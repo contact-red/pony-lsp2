@@ -6,3 +6,5 @@ tests_bin
 itemparse/probe
 itemparse/toks
 itemparse/nodes
+tools/agreement/dump
+tools/agreement/ponyc_dump
