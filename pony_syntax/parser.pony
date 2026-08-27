@@ -107,10 +107,13 @@ class Parser
     _elems.push((k, w.u32(), 1))
     _offset = _offset + w
 
-  fun ref _flush_trivia() =>
+  fun ref flush_trivia() =>
     """
-    Emit whitespace and comments up to the next significant token, into
-    whatever node is currently open.
+    Emit the whitespace and comments before the next significant token,
+    into whatever node is open now.
+
+    A rule that parses a sequence calls this between elements, so that what
+    separates them belongs to the sequence rather than to either side.
     """
     while _index < _stream.size() do
       try
@@ -125,16 +128,21 @@ class Parser
 
   fun ref start(k: NodeKind) =>
     """
-    Open a node. Pending trivia go to the enclosing node first, so that a
-    node begins at its first real token and the trivia between two items
-    belong to what contains them.
+    Open a node. Pending trivia go to the enclosing node first, so a node
+    begins at its first real token: `is Bar` and not ` is Bar`, and a
+    declaration whose fold range would otherwise start on the blank line
+    above it.
 
-    Unless nothing is open: the root has nothing to be enclosed by, so
-    leading whitespace or a leading comment belongs inside it. Flushing
-    there would put them before the root and leave the tree with two.
+    Two things follow from that, and both are the caller's to respect. A
+    node opened before nothing is consumed takes the trivia anyway, so a
+    rule must not open one speculatively -- which is why an entity with no
+    members has no member list rather than an empty one. And the root has
+    nothing to be enclosed by, so leading trivia belongs inside it;
+    flushing there would put elements before the root and leave the tree
+    with two.
     """
     if _open.size() > 0 then
-      _flush_trivia()
+      flush_trivia()
     end
     _open.push((_elems.size(), _offset))
     _elems.push((k, 0, 0))
@@ -151,11 +159,37 @@ class Parser
         (_elems.size() - index).u32())
     end
 
+  fun ref checkpoint(): (USize, USize) =>
+    """
+    Where a node would begin if one were opened now: the element index and
+    the byte offset. Give it to `wrap_from` to put a node around everything
+    parsed since.
+    """
+    (_elems.size(), _offset)
+
+  fun ref wrap_from(mark: (USize, USize), k: NodeKind) =>
+    """
+    Put a node of kind `k` around every element added since `mark`.
+
+    An infix construct is not known to be one until its operator appears --
+    `A` is a type and `A | B` is a union -- and a source-ordered tree cannot
+    rebuild itself around the operator the way ponyc's `INFIX_BUILD` does.
+    So a rule parses its left side, and wraps only if an operator follows.
+
+    Safe against the open stack because every open node was opened before
+    the mark, so inserting at it shifts none of their indices.
+    """
+    (let index, let from) = mark
+    try
+      _elems.insert(index,
+        (k, (_offset - from).u32(), ((_elems.size() - index) + 1).u32()))?
+    end
+
   fun ref bump() =>
     """
     Emit the next significant token, and any trivia before it.
     """
-    _flush_trivia()
+    flush_trivia()
     if _index < _stream.size() then
       try
         (let k, let w) = _stream(_index)?
@@ -171,6 +205,18 @@ class Parser
     that the caller can decide how to recover.
     """
     if at(k) then
+      bump()
+      true
+    else
+      expected(what)
+      false
+    end
+
+  fun ref expect_any(kinds: Array[TokenKind] box, what: String val): Bool =>
+    """
+    Emit the next significant token if it is any of `kinds`.
+    """
+    if at_any(kinds) then
       bump()
       true
     else
@@ -213,7 +259,7 @@ class Parser
     Close anything still open, account for the trailing trivia, and hand
     back the tree.
     """
-    _flush_trivia()
+    flush_trivia()
     while _open.size() > 0 do
       finish()
     end

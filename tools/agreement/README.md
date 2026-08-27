@@ -30,8 +30,9 @@ because ponyc compiles any C source it finds in a package directory.
 ## The reprint check
 
 The same binary, with `--reprint`, parses each file instead and reports any
-whose tree does not reprint to the source byte for byte, and any whose root
-does not span every element:
+whose tree does not reprint to the source byte for byte, any whose root does
+not span every element, and any that produced a diagnostic -- valid Pony
+should produce none:
 
     ./dump --reprint <ponyc>/packages/**/*.pony
 
@@ -40,7 +41,7 @@ Losslessness over real code, rather than over cases someone thought of.
 ## Result
 
 255 of 255 files in ponyc's `packages/` agree on tokens, and 255 of 255
-reprint from their tree with a single root.
+reprint from their tree with a single root and no diagnostics.
 
 The one disagreement this found and hand-written tests did not: a raw
 newline inside a single-quoted string. ponyc's `string` scans to the closing
@@ -52,3 +53,13 @@ leading comment was emitted before the root node rather than inside it,
 because `start` flushed pending trivia into the enclosing node and the root
 has none. Fourteen files in the standard library begin that way. The unit
 test now includes sources that start with trivia.
+
+The diagnostic count is the sharper of the two signals, because it says the
+grammar accepted what ponyc accepts rather than merely that no bytes were
+lost. It found the two bugs the unit tests did not:
+
+  - The method body skeleton stopped at `var`, `let` and `embed`, which
+    start a local declaration. Every body ended at its first local and the
+    rest was read as fields -- 115 of the 255 files.
+  - `iftype` lexes as `TkIftypeSet`, not `TkIftype`, so the skeleton never
+    counted it as opening a region and its `end` looked unbalanced.

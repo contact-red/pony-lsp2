@@ -2,53 +2,179 @@
 //
 // Deliberately not generated from ponyc's `abstract` table. ponyc reuses one
 // id for both the `class` keyword and the class definition node; this tree
-// keeps them apart, so that an element's kind says on its own whether it is a
-// leaf. The set is therefore a property of the grammar written here and grows
-// as rules are ported, rather than being taken wholesale from elsewhere.
+// keeps them apart, so an element's kind says on its own whether it is a
+// leaf. The set is a property of the grammar written here and grows as rules
+// are ported.
+//
+// ponyc's REORDER and INFIX_BUILD have no counterpart. They shape an AST for
+// later passes; this tree is source-ordered, so an operator stays between its
+// operands and a consumer interprets it. What ponyc expresses by rebuilding,
+// a rule here expresses by wrapping -- see `Parser.wrap_from`.
 
 primitive NdError
   """
-  Input that no rule could interpret. Its children are the tokens that were
-  skipped to reach a point where parsing could continue, so an error costs
-  the text it covers and nothing else.
+  Input that no rule could interpret. Its children are the tokens skipped to
+  reach a point where parsing could continue, so an error costs the text it
+  covers and nothing else.
   """
   fun name(): String val => "NdError"
 
 primitive NdModule
-  """
-  A whole source file.
-  """
+  """A whole source file."""
   fun name(): String val => "NdModule"
 
 primitive NdUse
-  """
-  A `use` command.
-  """
+  """A `use` command."""
   fun name(): String val => "NdUse"
 
 primitive NdUseName
-  """
-  The `name =` that may precede a `use` specifier.
-  """
+  """The `name =` that may precede a `use` specifier."""
   fun name(): String val => "NdUseName"
 
-primitive NdItem
-  """
-  A top-level declaration, not yet broken down.
+primitive NdUseFfi
+  """An FFI declaration: `@name[R](params)`."""
+  fun name(): String val => "NdUseFfi"
 
-  A placeholder for the entity rules: it spans from an entity keyword to the
-  start of the next top-level item. Folding and outline need the extent
-  before they need the detail, and the entity rules replace this without
-  disturbing anything above it.
+primitive NdClassDef
+  """A type, interface, trait, primitive, struct, class or actor."""
+  fun name(): String val => "NdClassDef"
+
+primitive NdAnnotations
+  """A `\\annotation\\` list."""
+  fun name(): String val => "NdAnnotations"
+
+primitive NdProvides
+  """The `is` clause of an entity."""
+  fun name(): String val => "NdProvides"
+
+primitive NdMembers
+  """The fields and methods of an entity."""
+  fun name(): String val => "NdMembers"
+
+primitive NdField
+  """A `var`, `let` or `embed` field."""
+  fun name(): String val => "NdField"
+
+primitive NdMethod
+  """A `fun`, `be` or `new`."""
+  fun name(): String val => "NdMethod"
+
+primitive NdParams
+  """A parenthesised parameter list."""
+  fun name(): String val => "NdParams"
+
+primitive NdParam
+  """One parameter."""
+  fun name(): String val => "NdParam"
+
+primitive NdTypeParams
+  """A `[...]` type parameter list on a declaration."""
+  fun name(): String val => "NdTypeParams"
+
+primitive NdTypeParam
+  """One type parameter."""
+  fun name(): String val => "NdTypeParam"
+
+primitive NdTypeArgs
+  """A `[...]` type argument list at a use site."""
+  fun name(): String val => "NdTypeArgs"
+
+primitive NdTypeList
+  """The parameter types of a lambda type."""
+  fun name(): String val => "NdTypeList"
+
+primitive NdNominal
+  """A named type, with its package, arguments and capability."""
+  fun name(): String val => "NdNominal"
+
+primitive NdThisType
+  """The type `this`."""
+  fun name(): String val => "NdThisType"
+
+primitive NdGroupedType
+  """A parenthesised type."""
+  fun name(): String val => "NdGroupedType"
+
+primitive NdTupleType
+  """Comma-separated types inside a parenthesised type."""
+  fun name(): String val => "NdTupleType"
+
+primitive NdLambdaType
+  """A `{...}` lambda type."""
+  fun name(): String val => "NdLambdaType"
+
+primitive NdBareLambdaType
+  """An `@{...}` bare lambda type."""
+  fun name(): String val => "NdBareLambdaType"
+
+primitive NdInfixType
   """
-  fun name(): String val => "NdItem"
+  Types joined by `|` or `&`.
+
+  Flat and source-ordered: the operands and the operators are siblings.
+  ponyc builds a left-leaning tree here instead, which is a shape for its
+  later passes rather than a fact about the source.
+  """
+  fun name(): String val => "NdInfixType"
+
+primitive NdViewpoint
+  """A `->` viewpoint type."""
+  fun name(): String val => "NdViewpoint"
+
+primitive NdValueFormalArg
+  """A literal or constant expression used as a type argument."""
+  fun name(): String val => "NdValueFormalArg"
+
+primitive NdConstExpr
+  """A `#`-prefixed constant expression."""
+  fun name(): String val => "NdConstExpr"
+
+primitive NdDefaultArg
+  """The `= value` of a parameter."""
+  fun name(): String val => "NdDefaultArg"
+
+primitive NdBody
+  """
+  An expression or a method body, taken as a balanced region rather than
+  parsed.
+
+  A placeholder for the expression rules. Its extent is right, which is what
+  folding, selection and an outline need; what is inside it is a flat run of
+  tokens and nested blocks. The rules that replace it change nothing above
+  this point.
+  """
+  fun name(): String val => "NdBody"
 
 type NodeKind is
   ( NdError
   | NdModule
   | NdUse
   | NdUseName
-  | NdItem
+  | NdUseFfi
+  | NdClassDef
+  | NdAnnotations
+  | NdProvides
+  | NdMembers
+  | NdField
+  | NdMethod
+  | NdParams
+  | NdParam
+  | NdTypeParams
+  | NdTypeParam
+  | NdTypeArgs
+  | NdTypeList
+  | NdNominal
+  | NdThisType
+  | NdGroupedType
+  | NdTupleType
+  | NdLambdaType
+  | NdBareLambdaType
+  | NdInfixType
+  | NdViewpoint
+  | NdValueFormalArg
+  | NdConstExpr
+  | NdDefaultArg
+  | NdBody
   )
   """
   Every kind of interior node. Grows as grammar rules are ported.

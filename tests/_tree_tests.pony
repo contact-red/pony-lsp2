@@ -91,8 +91,15 @@ class \nodoc\ iso _TestTriviaBelongToTheEnclosingNode is UnitTest
       h.fail("no root")
     end
     h.assert_eq[String](
-      "NdItem TkWhitespace NdItem TkWhitespace TkEof ", consume kinds)
+      "NdClassDef TkWhitespace NdClassDef TkWhitespace TkEof ", consume kinds)
     h.assert_eq[USize](5, module_children)
+    // And the class does not swallow the blank line after it, which would
+    // make its fold range a line too long.
+    try
+      h.assert_eq[String]("class A", tree.text(1)?)
+    else
+      h.fail("no first class")
+    end
 
 class \nodoc\ iso _TestSubtreeSizesAreConsistent is UnitTest
   fun name(): String => "tree/subtree sizes are consistent"
@@ -154,7 +161,7 @@ class \nodoc\ iso _TestErrorIsBounded is UnitTest
     var saw_item = false
     for (_, _, _, kind, _) in tree.walk() do
       if kind is NdError then saw_error = true end
-      if kind is NdItem then saw_item = true end
+      if kind is NdClassDef then saw_item = true end
     end
     h.assert_true(saw_error, "no error node")
     h.assert_true(saw_item, "the class after the bad use was lost")
@@ -168,7 +175,7 @@ class \nodoc\ iso _TestErrorAtTheStart is UnitTest
     h.assert_eq[String](src, tree.reprint())
     var saw_item = false
     for (_, _, _, kind, _) in tree.walk() do
-      if kind is NdItem then saw_item = true end
+      if kind is NdClassDef then saw_item = true end
     end
     h.assert_true(saw_item, "recovery did not reach the class")
 

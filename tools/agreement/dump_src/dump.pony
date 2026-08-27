@@ -40,6 +40,18 @@ actor \nodoc\ Main
           bad = bad + 1
           env.out.print("REPRINT " + path)
         end
+        if tree.diagnostics.size() > 0 then
+          bad = bad + 1
+          env.out.print("DIAGNOSTICS " + path + " (" +
+            tree.diagnostics.size().string() + ")")
+          var shown: USize = 0
+          for d in tree.diagnostics.values() do
+            if shown < 2 then
+              env.out.print("  " + d.string())
+              shown = shown + 1
+            end
+          end
+        end
         try
           if tree.subtree_size(0)? != tree.size() then
             bad = bad + 1
