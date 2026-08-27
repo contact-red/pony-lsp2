@@ -1,5 +1,5 @@
 use "pony_test"
-use "../pony_syntax"
+use "../upstream/tools/lib/ponylang/pony_syntax"
 
 actor \nodoc\ Main is TestList
   new create(env: Env) =>

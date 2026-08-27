@@ -6,8 +6,9 @@
 
 PONYC_ROOT ?= $(HOME)/projects/ponylang/ponyc
 PONYC_LIB  ?= $(PONYC_ROOT)/build/release
-BRIDGE     := upstream/tools/lib/ponylang/pony_compiler
-PATHS      := --path $(BRIDGE) --path $(PONYC_LIB)
+LIBS       := upstream/tools/lib/ponylang
+BRIDGE     := $(LIBS)/pony_compiler
+PATHS      := --path $(BRIDGE) --path $(LIBS) --path $(PONYC_LIB)
 
 .PHONY: all test syntax-test lsp lsp-test corpus clean
 

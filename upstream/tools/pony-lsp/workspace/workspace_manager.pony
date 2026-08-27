@@ -5,6 +5,7 @@ use "files"
 use "itertools"
 
 use "pony_compiler"
+use analysis = "pony_analysis"
 use "json"
 
 actor WorkspaceManager
@@ -386,7 +387,9 @@ actor WorkspaceManager
     // copy is what the user is looking at rather than what is on disk.
     match _full_text(notification)
     | let text: String val =>
-      doc_state.set_text(text, _client_version(notification))
+      if doc_state.set_text(text, _client_version(notification)) then
+        _publish_syntax_diagnostics(document_path, doc_state)
+      end
     end
     if doc_state.needs_compilation() then
       if this._compiling then
@@ -419,7 +422,9 @@ actor WorkspaceManager
       let doc_state = package_state.ensure_document(document_path)
       match _full_text(notification)
       | let text: String val =>
-        doc_state.set_text(text, _client_version(notification))
+        if doc_state.set_text(text, _client_version(notification)) then
+          _publish_syntax_diagnostics(document_path, doc_state)
+        end
       | None =>
         this._channel.log(
           "[didChange] no full document for " + document_path +
@@ -445,11 +450,17 @@ actor WorkspaceManager
         .query_one(notification.params) as String
     end
 
+    // `query_one` answers JSONNotFound rather than raising, so a missing
+    // key has to be matched for. Treating "not found" as found here would
+    // have made every change look incremental and be discarded.
     let incremental =
       try
-        JSONPathParser.compile("$.contentChanges[0].range")?
+        match JSONPathParser.compile("$.contentChanges[0].range")?
           .query_one(notification.params)
-        true
+        | JSONNotFound => false
+        else
+          true
+        end
       else
         false
       end
@@ -462,6 +473,59 @@ actor WorkspaceManager
         .query_one(notification.params) as String
     end
     None
+
+  fun _publish_syntax_diagnostics(
+    document_path: String,
+    doc_state: DocumentState box)
+  =>
+    """
+    Publish what is wrong with the buffer's syntax.
+
+    These come from the buffer rather than from a compile, so they appear
+    while typing and they appear for a file that does not compile at all.
+    A compile's diagnostics replace them when one finishes, which is the
+    right way round: a type error is a fact about the file that was
+    compiled, and a syntax error is a fact about what is on the screen.
+
+    An empty list is published when there is nothing wrong, because that
+    is what clears the squiggles from the edit before.
+    """
+    if not this._client.supports_publish_diagnostics() then
+      return
+    end
+    match doc_state.facts()
+    | let facts: analysis.DocumentFacts =>
+      var diagnostics = JSONArray
+      for d in facts.diagnostics.values() do
+        diagnostics = diagnostics.push(
+          Diagnostic(
+            LspLocation(Uris.from_path(document_path), _lsp_range(d.span)),
+            DiagnosticSeverities.err(),
+            d.message).to_json())
+      end
+      this._channel.send(
+        Notification.create(
+          Methods.text_document().publish_diagnostics(),
+          JSONObject
+            .update("uri", Uris.from_path(document_path))
+            // Which text these describe. The LSP has this field so that a
+            // client can tell whether a diagnostic is still about what it
+            // is showing, and it is also what distinguishes diagnostics
+            // about a buffer from a compile's, which are about a whole
+            // program and carry no version.
+            .update("version", doc_state.text_version().i64())
+            .update("diagnostics", diagnostics)))
+    end
+
+  fun _lsp_range(span: analysis.Span): LspPositionRange =>
+    """
+    An analysis span as an LSP range. Both are zero-based lines and
+    characters, and the characters are already counted in the encoding the
+    span was built with, so this is a change of type and not of meaning.
+    """
+    LspPositionRange(
+      LspPosition(span.start_line, span.start_character),
+      LspPosition(span.finish_line, span.finish_character))
 
   fun _client_version(notification: Notification val): I64 =>
     """

@@ -1,7 +1,7 @@
 use "collections"
 use "itertools"
 use "pony_test"
-use "../pony_syntax"
+use "../upstream/tools/lib/ponylang/pony_syntax"
 
 primitive \nodoc\ _TreeTests is TestList
   fun tag tests(test: PonyTest) =>

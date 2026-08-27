@@ -1,6 +1,6 @@
 use "collections"
 use "pony_test"
-use "../pony_syntax"
+use "../upstream/tools/lib/ponylang/pony_syntax"
 
 primitive \nodoc\ _GrammarTests is TestList
   fun tag tests(test: PonyTest) =>

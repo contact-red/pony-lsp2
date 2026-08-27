@@ -1,12 +1,13 @@
 {
   "packages": [
-    "pony_syntax",
+    "upstream/tools/lib/ponylang/pony_syntax",
+    "upstream/tools/lib/ponylang/pony_analysis",
     "tests"
   ],
   "deps": [],
   "info": {
-    "description": "A lossless, error-tolerant syntax tree for Pony source",
-    "name": "pony_syntax",
+    "description": "A query-based Pony front end for pony-lsp",
+    "name": "pony_lsp2",
     "license": "BSD",
     "version": ""
   }

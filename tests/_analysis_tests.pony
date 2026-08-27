@@ -1,6 +1,6 @@
 use "itertools"
 use "pony_test"
-use "../pony_analysis"
+use "../upstream/tools/lib/ponylang/pony_analysis"
 
 primitive \nodoc\ _AnalysisTests is TestList
   fun tag tests(test: PonyTest) =>

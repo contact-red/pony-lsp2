@@ -3,6 +3,7 @@ use "files"
 use "itertools"
 
 use "pony_compiler"
+use analysis = "pony_analysis"
 
 use ".."
 
@@ -150,6 +151,16 @@ class DocumentState
     The client's version of the text held, used only to drop a
     notification that arrives after a newer one.
     """
+  var _facts: (analysis.DocumentFacts | None)
+    """
+    What syntax alone says about the buffer: an outline, foldable regions,
+    selection ranges and syntax errors.
+
+    Recomputed whenever the text is, rather than per request, because one
+    edit can be followed by several requests about it. Parsing a file is
+    milliseconds, which is what makes doing it per edit reasonable and
+    doing it per compile unnecessary.
+    """
 
   new create(path': String, channel': Channel) =>
     path = path'
@@ -163,6 +174,7 @@ class DocumentState
     _text = None
     _text_version = 0
     _client_version = -1
+    _facts = None
 
   fun ref update(run_id: USize, module': Module val) =>
     if run_id >= _compiler_run_id then
@@ -195,6 +207,7 @@ class DocumentState
     _text = text'
     _client_version = client_version'
     _text_version = _text_version + 1
+    _facts = analysis.DocumentFacts(text')
     true
 
   fun box text(): (String val | None) =>
@@ -209,6 +222,15 @@ class DocumentState
     Which text `text` is. Zero when there has never been one.
     """
     _text_version
+
+  fun box facts(): (analysis.DocumentFacts | None) =>
+    """
+    What syntax says about the buffer, or `None` if there is no buffer.
+
+    Always available once a document has been opened, whether or not it
+    compiles and whether or not it has been saved.
+    """
+    _facts
 
   fun ref add_diagnostic(run_id: USize, diagnostic: Diagnostic) =>
     // also accept diagnostics from the last/current run,

@@ -1,5 +1,5 @@
 use "pony_test"
-use "../pony_syntax"
+use "../upstream/tools/lib/ponylang/pony_syntax"
 
 primitive \nodoc\ _LineIndexTests is TestList
   fun tag tests(test: PonyTest) =>

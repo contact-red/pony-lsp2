@@ -140,7 +140,9 @@ actor _LspTestServer is Channel
         end
       end
     | let n: Notification val =>
-      if n.method == Methods.text_document().publish_diagnostics() then
+      if (n.method == Methods.text_document().publish_diagnostics()) and
+        (not _Versioned(n))
+      then
         if not _ready then
           _ready = true
           for p in _pending.values() do
@@ -227,6 +229,27 @@ actor _LspTestServer is Channel
 
   be dispose() =>
     None
+
+primitive \nodoc\ _Versioned
+  """
+  Whether a publishDiagnostics describes one version of one buffer.
+
+  Diagnostics from the buffer's syntax carry the version they are about;
+  a compile's describe a whole program and carry none. The readiness gate
+  waits for a compile, so it has to be able to tell them apart -- before
+  syntax diagnostics existed, the first publication was always a compile's
+  and the gate did not need to.
+  """
+  fun apply(n: Notification val): Bool =>
+    try
+      match JSONPathParser.compile("$.version")?.query_one(n.params)
+      | JSONNotFound => false
+      else
+        true
+      end
+    else
+      false
+    end
 
 class val _PendingRequest
   let file_path: String

@@ -1,6 +1,6 @@
 use "files"
-use "../../../pony_syntax"
-use "../../../pony_analysis"
+use "../../../upstream/tools/lib/ponylang/pony_syntax"
+use "../../../upstream/tools/lib/ponylang/pony_analysis"
 
 actor \nodoc\ Main
   """
