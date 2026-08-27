@@ -22,7 +22,7 @@ normal state of a file being edited, and that single defect is why one syntax
 error currently costs every feature at once.
 
 **The first slice is a Pony lexer and parser, lossless and error-tolerant,
-producing a green tree whose nodes carry widths rather than offsets.**
+producing a syntax tree whose elements carry widths rather than offsets.**
 libponyc's parser cannot serve a language server: it frees the whole tree on
 any syntax error, so it has nothing to say about a buffer being typed, and its
 AST carries no trivia, which is why two tools already scan raw source bytes
@@ -796,6 +796,21 @@ Five the boundary owns:
   `@ast_free` — so `val` alone is not the guarantee an earlier draft claimed.
   This one is testable: build a `DocumentFacts val`, drop the `Program`, force
   collection, read every field.
+- **I2a — No value crossing the boundary contains an actor reference.**
+  *Checkable by inspection, and it must be checked.* An immutable object graph
+  sent between actors is not traced — the whole `FileSyntax` → array →
+  `ItemSyntax` publication is cheap regardless of size — **unless an actor
+  appears somewhere beneath it, because actors must always be traced.** One
+  `tag` on one fact type turns every publication into a graph walk.
+
+  Verified clean for the types in this design: nothing in `ItemSyntax`,
+  `FileSyntax`, `DocumentFacts`, `Declaration`, `Reference`, `SourceSpan`,
+  `DefinitionRef` or `DocumentAnalysis` holds one. The one that looked
+  suspicious is not: `FilePath` is `path: String` plus `caps: FileCaps`, and
+  `FileAuth` and `AmbientAuth` are primitives, so `WorkspaceDocument` may hold
+  a `FilePath`. The obvious way to break this later is to put a `Channel` or a
+  notify `tag` on a fact type for convenience.
+
 - **I3 — The engine never answers `Absent` to a question its depth cannot
   decide.** "There is nothing here" and "this depth cannot see it" are
   different claims. *Convention inside the engine*, and the invariant whose
@@ -1147,88 +1162,72 @@ writing a syntax error — a linear scan of 210 name-table entries per token.
 Making it lazy took a 113 KB file from 99.7ms to 22.4ms, 4.5x, putting the
 parser ahead of ponyc's own throughput. A faithful port copies the defect.
 
-### The tree: green nodes with widths, positions derived
+### The tree: pre-order element arrays, widths not offsets
 
 ```pony
-type SyntaxKind is (…)
-  """
-  Every ponyc token id, plus the kinds a lossy tree does not need:
-  `Whitespace`, `LineComment`, `NestedComment`, and `Error`.
-  """
+primitive TkClassKw    // the `class` keyword token
+primitive TkId
+primitive TkWhitespace
+primitive TkClassDef   // the class node
+primitive TkMembers
+// ...one per ponyc token id, plus Whitespace, LineComment,
+// NestedComment and Error, with node kinds and token kinds kept
+// disjoint rather than reusing one id for both as ponyc does.
+type TkKind is (TkClassKw | TkId | TkWhitespace | TkClassDef | ...)
 
-type GreenElement is (GreenNode val | GreenToken val)
+class val ItemSyntax
+  """
+  One top-level declaration and everything inside it, flattened into a
+  single pre-order array. The unit of structural sharing: an edit inside
+  one item leaves every other item object untouched.
+  """
+  var width: U32
+    """Bytes this item spans. A width, never an offset."""
 
-class val GreenToken
-  """
-  One token and its exact text. Trivia are tokens like any other, so the
-  tree holds every byte of the source.
-  """
-  let kind: SyntaxKind
+  embed elems: Array[(TkKind, U32, U32)]
+    """
+    Pre-order. For each element: its kind, its width in bytes, and a third
+    field whose meaning follows from the kind -- for a token, the index of
+    its text in the intern table, zero for the ~62% whose text is fully
+    determined by their kind; for a node, the size of its subtree in
+    elements.
+
+    Children of element `i` begin at `i + 1`; the next sibling of a node is
+    at `i + size`. There is no parent link: a walk carries its own path.
+    """
+
+class val FileSyntax
   let text: String val
-
-  fun width(): USize => this.text.size()
-
-class val GreenNode
-  """
-  A node, its children, and its width in bytes. It has no parent, no
-  offset and no identity beyond its contents, so two structurally equal
-  nodes may be the same object and an edit elsewhere in the file cannot
-  change it.
-  """
-  let kind: SyntaxKind
-  let children: Array[GreenElement] val
-  let _width: USize
-
-  fun width(): USize => this._width
+  let items: Array[ItemSyntax val] val
 ```
 
-**Widths, never offsets.** This is the whole point and it is the direct fix for
-what FINDINGS names as the central flaw — "`parse(file)` returns one arena and
-every node id in it shifts when the file changes", which is where its 33%
-re-check figure comes from. A node that stores its width and not its position
-is unchanged by an edit anywhere outside it, so an edit changes only the spine
-from the edit up to the root. Every other subtree is bit-identical and shared.
+**Widths, never offsets.** This is the point, and it is the direct fix for what
+FINDINGS names as the central flaw — "`parse(file)` returns one arena and every
+node id in it shifts when the file changes", which is where its 33% re-check
+figure comes from. An element that records its width and not its position is
+unchanged by an edit anywhere outside it, so an edit rewrites one item and
+nothing else. That subsumes the item tree FINDINGS recommends rather than
+needing one built on top.
 
-That subsumes the item tree rather than requiring one. FINDINGS recommends an
-item tree addressed by name path as the fix for invalidation granularity; a
-green tree gives the same stability for *every* node, not just items, and gives
-it by construction rather than by a second derived structure.
+Positions are derived by a cursor that walks down carrying a running offset,
+and `LineIndex` — built per text version by one scan — owns every conversion
+between a byte offset and an LSP `(line, character)`. **That is the only place
+in the system that knows the negotiated `positionEncoding`**, which is where
+bug 3 gets fixed rather than propagated.
 
-Positions come from a cursor layered over it:
+Two Pony properties make this cheap, and they are why the structure is arrays
+of tuples rather than a node class per element. An `Array` of tuples stores the
+tuples inline, so an element costs no allocation of its own; and `embed` inlines
+the `Array` object itself into `ItemSyntax`, so an item is two allocations
+total — the object and its data chunk. A union of primitives is a pointer to a
+singleton, so `TkKind` carries its own identity and a `match` on it is checked
+for exhaustiveness, where a packed integer tag would not be.
 
-```pony
-class val SyntaxNode
-  """
-  A green node located in a file: the node, its parent, and its byte
-  offset. Created on demand while walking down from the root, so the
-  located form costs nothing until someone asks a question about
-  position.
-  """
-  let green: GreenNode val
-  let parent: (SyntaxNode val | None)
-  let offset: USize
-```
-
-**Byte offsets, converted once.** `LineIndex` is built per text version by one
-scan and owns every conversion between a byte offset and an LSP
-`(line, character)`. That is where the UTF-16 question is settled — see bug 3 —
-and it is the only place in the system that needs to know the negotiated
-`positionEncoding`. Nothing in the tree or the facts carries a line or a
-column.
-
-**On allocation**, because Pony has no arena and this is one `class val` per
-node. Two things pay for it. Green nodes are shared, so an edit allocates only
-along one spine and identical subtrees — of which real code has many — are one
-object. And a traced `val` is not reference-counted per access, which is
-exactly the cost FINDINGS measured `im`'s `Arc` paying in the Rust experiment
-and attributed half the persistent-map slowdown to. The pointer-chasing half
-survives; the refcounting half does not.
-
-The measurement to take early: build the green tree for the standard library
-and count live objects and bytes against the flat-array alternative. If the
-object count is prohibitive, the fallback is to keep the *shape* and flatten
-the representation — children as an index range into one shared array — which
-preserves widths and sharing while removing one object per node.
+Measured against the real corpus — 2.19 MB of standard library, 369,703
+non-trivia tokens, 637,773 ponyc AST nodes, so roughly a million tree elements
+once trivia is retained, across 2,190 top-level items — that is **about 16 MB
+and about 4,400 allocations for the whole standard library**, with a subtree
+walk being a linear scan of contiguous memory.
 
 ### Error tolerance
 
@@ -1281,7 +1280,7 @@ their exact text rather than being skipped. Everything else — the numeric
 literal machinery in `lexint`, string and character literals, the keyword
 tables — ports as it stands.
 
-**The green tree** as specified in question 3, plus `LineIndex` for
+**The tree** as specified in question 3, plus `LineIndex` for
 offset-to-position conversion.
 
 **The runtime**, which is the new work rather than a port: the twenty-odd
@@ -1321,7 +1320,7 @@ else.
 
 ### The boundary, at this depth
 
-`DocumentFacts` is projected from the green tree rather than from a libponyc
+`DocumentFacts` is projected from the syntax tree rather than from a libponyc
 module. `FactsFromModule` still exists for the `Typed` depth during migration;
 `FactsFromTree` is the new producer, and the two must agree on `DefinitionRef`
 construction — that agreement is the first slice's sharpest test, because it is
@@ -1374,7 +1373,7 @@ pony-lsp does not have today and it arrives well before the outline does.
 
 ### What is deliberately not in it
 
-The 65 expression and statement rules. Incremental reparse — the green tree
+The 65 expression and statement rules. Incremental reparse — the tree
 makes it possible, but a full reparse of one file is milliseconds and the
 machinery to find the smallest reparsable node is work with no user-visible
 return at this size. Any query engine: `DocumentFacts` at `Parsed` depth is a
@@ -1477,21 +1476,11 @@ becomes the common case. This is the concrete argument for invariant I3.
 
 ## What is uncertain
 
-Ordered by how much damage being wrong would do. Four entries from an earlier
+Ordered by how much damage being wrong would do. Six entries from an earlier
 draft have been resolved and are recorded as such, because a design document
 that only grows its uncertainty list is not being read.
 
-**1. What a green tree costs in Pony, in objects and in bytes.** One
-`class val` per node with no arena is the design's largest unmeasured risk.
-Sharing pays for a lot of it — an edit allocates along one spine, identical
-subtrees are one object, and a traced `val` avoids the per-access refcounting
-that FINDINGS measured `im` paying in Rust. But nobody has counted. **Build the
-tree for `packages/` and count live objects and bytes before committing.** The
-fallback keeps the shape and flattens the representation — children as an index
-range into one shared array — which preserves widths and sharing while removing
-one object per node.
-
-**2. Whether the block skeleton gives folding and selection range what they
+**1. Whether the block skeleton gives folding and selection range what they
 need.** Pony's blocks are keyword-delimited, so balanced-region parsing should
 yield real nesting. Whether it yields the *same* nesting the current
 implementations assume is not established, and `SiblingBound` exists in pony-lsp
@@ -1499,13 +1488,13 @@ specifically to stop a fold range bleeding into the next member — which is a
 tree fact the skeleton must reproduce. Check against the existing folding
 fixtures before porting the item rules.
 
-**3. Whether `FactsFromTree` and `FactsFromModule` can be made to agree.** Two
+**2. Whether `FactsFromTree` and `FactsFromModule` can be made to agree.** Two
 producers of the same fact types during migration, and the whole per-feature
 migration rests on a feature moving from one to the other without the user
 seeing a change. `DefinitionRef` construction is where they must agree exactly.
 This is the first slice's sharpest test and it has no precedent to copy.
 
-**4. `FactsFromModule` is unpriced and is the highest-leverage item.** It is the
+**3. `FactsFromModule` is unpriced and is the highest-leverage item.** It is the
 only new O(workspace) computation: projecting every declaration in every module
 into fact values, eagerly at each rung — and eagerly is now required rather than
 preferred, because lazy projection reads a tree `expr` has rewritten. Three
@@ -1513,7 +1502,7 @@ rungs means three projections. If it runs on the actor that assembles the push,
 requests queue behind it, which is the argument this design makes about
 `PonyCompiler` and must not repeat one layer up. Measure before building.
 
-**5. What `Parsed` means with respect to desugaring.** "Syntax only" reads as
+**4. What `Parsed` means with respect to desugaring.** "Syntax only" reads as
 `PassParse`, but the folding-range tests document that they assert around
 ponyc's desugaring — `object` and lambda literals become synthetic classes after
 `expr`, `with` desugars before the typechecked AST so `tk_with` never appears,
@@ -1530,12 +1519,12 @@ way from `Parsed` to `Typed` is a flicker the user sees. Pin what `Parsed`
 means in its docstring, and decide whether the shallow outline suppresses
 constructs it knows will change.
 
-**6. Whether `EntityPath.package` is unique enough.** It uses the qualified
+**5. Whether `EntityPath.package` is unique enough.** It uses the qualified
 name. `package_hygienic_id` exists in libponyc because qualified names are not
 unique, and `WorkspaceManager._packages` is keyed by path. This design's
 identity may be *less* discriminating than the code it replaces. Not traced.
 
-**7. Resource bounds.** Nothing here bounds text size, and libponyc's parser is
+**6. Resource bounds.** Nothing here bounds text size, and libponyc's parser is
 recursive descent with no depth limit — `parserapi.h:52-56` says so — so a
 deeply nested expression in a repository the developer did not write overflows
 the C stack and takes the process down. `source_open` reads a whole file into
@@ -1545,11 +1534,11 @@ package you opened" into "breaks the session". A size cap surfaced as a fact
 rather than a crash belongs in the front end; the depth limit belongs in
 libponyc.
 
-**8. Whether stale-but-stamped is what users want.** The per-feature policy
+**7. Whether stale-but-stamped is what users want.** The per-feature policy
 trades a uniform auditable rule for sixteen small ones. It can only be settled
 by using it.
 
-**9. Whether `NotYetKnown`'s retry contract is honourable on the synchronous
+**8. Whether `NotYetKnown`'s retry contract is honourable on the synchronous
 path.** Twelve features read pushed facts and reply immediately; both written
 sketches send `null`, which is a *successful* LSP response that no client
 retries. With the parser answering at `Parsed` while libponyc answers at
@@ -1572,6 +1561,15 @@ waits, bounded, or it does not promise a retry.
   libponyc as the semantic back end, which the migration relies on.
 - **Does `codegen_pass_init` do process-global LLVM setup?** No; that is
   `codegen_llvm_init`, which `pony_compiler` never calls.
+- **Does publishing a tree to reader actors cost a deep trace?** No. An
+  immutable graph sent between actors is not traced, so the size of the
+  publication does not matter — provided no actor reference hides inside it.
+  That condition is now invariant I2a rather than an assumption.
+- **What does the tree cost in Pony?** About 16 MB and 4,400 allocations for
+  the whole standard library, because an `Array` of tuples stores its elements
+  inline and `embed` inlines the array object into the item. Two allocations
+  per top-level item. It was on this list as the largest unmeasured risk; it is
+  not a risk.
 - **Can two actors call libponyc concurrently?** Yes, given one `pass_opt` each
   and no sharing. Audited; the evidence is in question 3.
 
@@ -1581,7 +1579,7 @@ waits, bounded, or it does not promise a retry.
   Independent rules against the same runtime, so this is addition rather than
   rework — and it is what takes the four fresh features to all sixteen once the
   semantic depths follow.
-- **Incremental reparse.** The green tree makes it possible: find the smallest
+- **Incremental reparse.** The tree makes it possible: find the smallest
   node covering an edit and reparse only that. A full reparse of one file is
   3-40ms, so this has no user-visible return at current sizes and should wait
   until something measures a need.
