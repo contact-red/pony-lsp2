@@ -1,3 +1,4 @@
+use "collections"
 use "files"
 use "../../../upstream/tools/lib/ponylang/pony_syntax"
 use "../../../upstream/tools/lib/ponylang/pony_analysis"
@@ -12,18 +13,24 @@ actor \nodoc\ Main
   With `--reprint`: parse each file and report any whose tree does not
   reprint to the source it was built from, and any with more than one root.
   Losslessness over real code rather than over cases someone thought of.
+
+  With `--tree`: print the parse tree, one indented line per element, so
+  that what a rule builds can be read rather than guessed at.
   """
   new create(env: Env) =>
     let auth = FileAuth(env.root)
     let args = env.args.slice(1)
     var reprint = false
     var facts_mode = false
+    var tree_mode = false
     let paths = Array[String]
     for a in args.values() do
       if a == "--reprint" then
         reprint = true
       elseif a == "--facts" then
         facts_mode = true
+      elseif a == "--tree" then
+        tree_mode = true
       else
         paths.push(a)
       end
@@ -31,6 +38,7 @@ actor \nodoc\ Main
 
     var checked: USize = 0
     var bad: USize = 0
+    var diagnosed: USize = 0
     var decls: USize = 0
     var top_level: USize = 0
 
@@ -54,7 +62,7 @@ actor \nodoc\ Main
           end
         end
         if facts.diagnostics.size() > 0 then
-          bad = bad + 1
+          diagnosed = diagnosed + 1
           env.out.print("DIAGNOSTICS " + path)
         end
         for d in facts.declarations.values() do
@@ -71,7 +79,7 @@ actor \nodoc\ Main
           env.out.print("REPRINT " + path)
         end
         if tree.diagnostics.size() > 0 then
-          bad = bad + 1
+          diagnosed = diagnosed + 1
           env.out.print("DIAGNOSTICS " + path + " (" +
             tree.diagnostics.size().string() + ")")
           var shown: USize = 0
@@ -93,6 +101,34 @@ actor \nodoc\ Main
             env.out.print("NOROOT " + path)
           end
         end
+      elseif tree_mode then
+        env.out.print("### " + path)
+        let tree = Parse(src)
+        for (index, depth, at, kind, width) in tree.walk() do
+          let indent =
+            recover val
+              let out = String(depth * 2)
+              for _ in Range(0, depth * 2) do
+                out.push(' ')
+              end
+              out
+            end
+          let line =
+            try
+              if tree.is_leaf(index)? then
+                " " + _Escape(recover val tree.text(index)? end)
+              else
+                ""
+              end
+            else
+              ""
+            end
+          env.out.print(indent + kind.name() + " " + at.string() + "+" +
+            width.string() + line)
+        end
+        for d in tree.diagnostics.values() do
+          env.out.print("! " + d.string())
+        end
       else
         env.out.print("### " + path)
         let stream = recover val TokenStream(src) end
@@ -107,9 +143,31 @@ actor \nodoc\ Main
     end
 
     if reprint or facts_mode then
-      env.out.print("files " + checked.string() + ", failures " + bad.string())
+      env.out.print("files " + checked.string() +
+        ", failures " + bad.string() +
+        ", with diagnostics " + diagnosed.string())
     end
     if facts_mode then
       env.out.print("declarations " + decls.string() +
         ", top level " + top_level.string())
+    end
+
+primitive \nodoc\ _Escape
+  """
+  A leaf's text on one line, so the tree stays readable.
+  """
+  fun apply(text: String val): String val =>
+    recover val
+      let out = String(text.size() + 2)
+      out.push('\'')
+      for c in text.values() do
+        match c
+        | '\n' => out.append("\\n")
+        | '\t' => out.append("\\t")
+        else
+          out.push(c)
+        end
+      end
+      out.push('\'')
+      out
     end

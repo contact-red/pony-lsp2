@@ -184,10 +184,7 @@ primitive _TypeArg
       p.finish()
     elseif p.at(TkConstant) then
       p.start(NdValueFormalArg)
-      p.start(NdConstExpr)
-      p.bump()
-      Skeleton(p, [TkComma; TkRsquare])
-      p.finish()
+      _ConstExpr(p)
       p.finish()
     else
       _TypeRule(p)

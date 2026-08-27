@@ -17,25 +17,15 @@ primitive TokenSets
   fun method_start(): Array[TokenKind] val =>
     [TkFun; TkBe; TkNew]
 
-  fun member_start(): Array[TokenKind] val =>
-    [TkVar; TkLet; TkEmbed; TkFun; TkBe; TkNew]
-
-  fun method_or_top_level(): Array[TokenKind] val =>
-    """
-    Where a method body ends.
-
-    Deliberately without `var`, `let` and `embed`: those start a local
-    declaration, and a body is full of them. Stopping there would end every
-    body at its first local and leave the rest of it to be read as fields.
-    """
-    [ TkFun; TkBe; TkNew
-      TkUse; TkType; TkInterface; TkTrait
-      TkPrimitive; TkStruct; TkClass; TkActor ]
-
   fun member_or_top_level(): Array[TokenKind] val =>
+    """
+    Where a member list ends: the next member, the next item, or the `end`
+    that closes an `object` literal.
+    """
     [ TkVar; TkLet; TkEmbed; TkFun; TkBe; TkNew
       TkUse; TkType; TkInterface; TkTrait
-      TkPrimitive; TkStruct; TkClass; TkActor ]
+      TkPrimitive; TkStruct; TkClass; TkActor
+      TkEnd ]
 
   fun caps(): Array[TokenKind] val =>
     [TkIso; TkTrn; TkRef; TkVal; TkBox; TkTag]
@@ -64,20 +54,3 @@ primitive TokenSets
   fun lsquare(): Array[TokenKind] val =>
     [TkLsquare; TkLsquareNew]
 
-  fun block_open(): Array[TokenKind] val =>
-    """
-    Tokens that open a region closed by `end`. Needed by the body skeleton,
-    which must not stop at a `fun` that belongs to an `object` literal.
-    """
-    // `iftype` lexes as TkIftypeSet, not TkIftype -- ponyc's keyword table
-    // maps the word to TK_IFTYPE_SET and reserves TK_IFTYPE for a node its
-    // parser builds. Using the wrong one leaves every `iftype` uncounted
-    // and its `end` looking unbalanced.
-    [ TkIf; TkIfdef; TkIftypeSet; TkWhile; TkFor; TkRepeat
-      TkTry; TkMatch; TkRecover; TkObject; TkWith ]
-
-  fun bracket_open(): Array[TokenKind] val =>
-    [TkLparen; TkLparenNew; TkLsquare; TkLsquareNew; TkLbrace; TkAtLbrace]
-
-  fun closers(): Array[TokenKind] val =>
-    [TkEnd; TkRparen; TkRsquare; TkRbrace]

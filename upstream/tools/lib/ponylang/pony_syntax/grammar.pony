@@ -2,8 +2,7 @@
 // use, entity declarations, members, methods, fields and parameters.
 //
 // Method bodies, field values, default arguments and use conditions are
-// taken as balanced regions by `Skeleton` rather than parsed. Those are the
-// expression grammar, which is the other half of ponyc's rules.
+// expressions, and `expr_grammar.pony` has those rules.
 
 primitive Parse
   """
@@ -72,7 +71,7 @@ primitive _Use
 
     if p.at(TkIf) then
       p.bump()
-      Skeleton(p, TokenSets.top_level())
+      _Infix(p, _ExprNormal)
     end
 
     p.finish()
@@ -173,7 +172,7 @@ primitive _Members
   """
   fun apply(p: Parser ref) =>
     p.start(NdMembers)
-    while not (p.eof() or p.at_any(TokenSets.top_level())) do
+    while not (p.eof() or p.at(TkEnd) or p.at_any(TokenSets.top_level())) do
       if p.at_any(TokenSets.field_start()) then
         _Field(p)
       elseif p.at_any(TokenSets.method_start()) then
@@ -197,7 +196,7 @@ primitive _Field
     _TypeRule(p)
     if p.at(TkAssign) then
       p.bump()
-      Skeleton(p, TokenSets.member_or_top_level())
+      _Infix(p, _ExprNormal)
     end
     if p.at(TkString) then
       p.bump()
@@ -244,7 +243,7 @@ primitive _Method
     end
     if p.at(TkDblarrow) then
       p.bump()
-      Skeleton(p, TokenSets.method_or_top_level())
+      _RawSeq(p)
     end
 
     p.finish()
@@ -277,9 +276,6 @@ primitive _Param
     p.expect(TkColon, "a type declaration, which a parameter must have")
     _TypeRule(p)
     if p.at(TkAssign) then
-      p.start(NdDefaultArg)
-      p.bump()
-      Skeleton(p, [TkComma; TkRparen])
-      p.finish()
+      _DefaultArg(p)
     end
     p.finish()

@@ -35,7 +35,8 @@ twice-validated part; the runtime is the small piece that decides what happens
 on error.** The first slice ports the lexer, builds the tree, rewrites the
 runtime so that no rule can fail, and ports the 64 rules covering items,
 signatures and types — with method bodies as a block skeleton that the
-remaining 65 rules replace later.
+remaining 65 rules replace later. (Both halves are now built; the skeleton is
+gone.)
 
 What the user gets: document symbols, folding range, selection range and syntax
 diagnostics answering on every keystroke against the unsaved buffer, including
@@ -1480,14 +1481,6 @@ Ordered by how much damage being wrong would do. Six entries from an earlier
 draft have been resolved and are recorded as such, because a design document
 that only grows its uncertainty list is not being read.
 
-**1. Whether the block skeleton gives folding and selection range what they
-need.** Pony's blocks are keyword-delimited, so balanced-region parsing should
-yield real nesting. Whether it yields the *same* nesting the current
-implementations assume is not established, and `SiblingBound` exists in pony-lsp
-specifically to stop a fold range bleeding into the next member — which is a
-tree fact the skeleton must reproduce. Check against the existing folding
-fixtures before porting the item rules.
-
 **2. Whether `FactsFromTree` and `FactsFromModule` can be made to agree.** Two
 producers of the same fact types during migration, and the whole per-feature
 migration rests on a feature moving from one to the other without the user
@@ -1548,6 +1541,11 @@ waits, bounded, or it does not promise a retry.
 
 ### Resolved since the first draft
 
+- **Does the tree give folding and selection range what they need?** Yes, and
+  the question stopped being about a skeleton: the expression rules are ported,
+  so a fold is an `NdIf` or an `NdWhile` rather than a counted region. The
+  existing folding and selection fixtures pass unchanged, which is what
+  `SiblingBound` was the worry about.
 - **Does per-item parsing work?** Yes — measured, not reasoned about:
   positions exact, a broken item costs only itself, 2,159 of 2,190 stdlib items
   parse alone, no measurable cost. It is no longer part of the plan, because a
@@ -1575,10 +1573,12 @@ waits, bounded, or it does not promise a retry.
 
 ## Future work, written down rather than built
 
-- **The 65 expression and statement rules**, replacing the block skeleton.
-  Independent rules against the same runtime, so this is addition rather than
-  rework — and it is what takes the four fresh features to all sixteen once the
-  semantic depths follow.
+- ~~**The 65 expression and statement rules**~~ — done. They landed as
+  addition rather than rework, as expected: the runtime did not change, and the
+  item and type rules changed only where they had called the skeleton. What was
+  not expected is that they made the parser hang, on ponyc's own annotation
+  fixtures. A rule that consumes nothing must not be repeated, and the sequence
+  loop now says so. `tools/agreement/README.md` has the account.
 - **Incremental reparse.** The tree makes it possible: find the smallest
   node covering an edit and reparse only that. A full reparse of one file is
   3-40ms, so this has no user-visible return at current sizes and should wait

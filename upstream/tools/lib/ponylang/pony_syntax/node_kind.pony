@@ -185,39 +185,299 @@ primitive NdDefaultArg
   """
   fun name(): String val => "NdDefaultArg"
 
-primitive NdBlock
+primitive NdSeq
   """
-  A balanced region inside a body: a region Pony closes with `end`, or a
-  bracketed group.
+  A sequence of expressions: a body, a branch, an argument.
+  """
+  fun name(): String val => "NdSeq"
 
-  The body skeleton emits these as it goes, so a body has real nesting
-  before the expression rules exist to give it meaning. Folding and
-  expanding a selection both need the structure rather than the meaning,
-  which is why they work now.
+primitive NdJump
   """
-  fun name(): String val => "NdBlock"
+  A `return`, `break`, `continue`, `error` or compile intrinsic.
+  """
+  fun name(): String val => "NdJump"
 
-primitive NdGroup
+primitive NdAssign
   """
-  A bracketed group inside a body: `(...)`, `[...]`, `{...}`.
+  An assignment.
+  """
+  fun name(): String val => "NdAssign"
 
-  Kept apart from `NdBlock` because the two are folded differently -- a
-  region a reader thinks of as a block is worth collapsing, and the
-  arguments of a call spread over three lines are not.
+primitive NdBinOp
   """
-  fun name(): String val => "NdGroup"
+  Two operands and an infix operator between them.
+  """
+  fun name(): String val => "NdBinOp"
 
-primitive NdBody
+primitive NdUnaryOp
   """
-  An expression or a method body, taken as a balanced region rather than
-  parsed.
+  A prefix operator and its operand.
+  """
+  fun name(): String val => "NdUnaryOp"
 
-  A placeholder for the expression rules. Its extent is right, which is what
-  folding, selection and an outline need; what is inside it is a flat run of
-  tokens and nested blocks. The rules that replace it change nothing above
-  this point.
+primitive NdAsOp
   """
-  fun name(): String val => "NdBody"
+  An `as` and the type it names.
+  """
+  fun name(): String val => "NdAsOp"
+
+primitive NdDot
+  """
+  A `.` and the member it names.
+  """
+  fun name(): String val => "NdDot"
+
+primitive NdTilde
+  """
+  A `~` partial application and the method it names.
+  """
+  fun name(): String val => "NdTilde"
+
+primitive NdChain
+  """
+  A `.>` chained call and the method it names.
+  """
+  fun name(): String val => "NdChain"
+
+primitive NdQualify
+  """
+  Type arguments applied to a reference.
+  """
+  fun name(): String val => "NdQualify"
+
+primitive NdCall
+  """
+  A call's argument list, applied to what precedes it.
+  """
+  fun name(): String val => "NdCall"
+
+primitive NdArgs
+  """
+  The positional arguments of a call.
+  """
+  fun name(): String val => "NdArgs"
+
+primitive NdNamedArgs
+  """
+  The `where` arguments of a call.
+  """
+  fun name(): String val => "NdNamedArgs"
+
+primitive NdNamedArg
+  """
+  One `name = value` argument.
+  """
+  fun name(): String val => "NdNamedArg"
+
+primitive NdRef
+  """
+  A reference to a name.
+  """
+  fun name(): String val => "NdRef"
+
+primitive NdThis
+  """
+  The `this` reference.
+  """
+  fun name(): String val => "NdThis"
+
+primitive NdLocation
+  """
+  The `__loc` literal.
+  """
+  fun name(): String val => "NdLocation"
+
+primitive NdGrouped
+  """
+  A parenthesised expression.
+  """
+  fun name(): String val => "NdGrouped"
+
+primitive NdTuple
+  """
+  Comma-separated expressions inside parentheses.
+  """
+  fun name(): String val => "NdTuple"
+
+primitive NdArray
+  """
+  An array literal.
+  """
+  fun name(): String val => "NdArray"
+
+primitive NdArrayType
+  """
+  The `as T:` element type of an array literal.
+  """
+  fun name(): String val => "NdArrayType"
+
+primitive NdFFICall
+  """
+  An `@name(...)` call into C.
+  """
+  fun name(): String val => "NdFFICall"
+
+primitive NdLocal
+  """
+  A `var`, `let` or `embed` declaration, or a match capture.
+  """
+  fun name(): String val => "NdLocal"
+
+primitive NdIdSeq
+  """
+  The names a `for` or `with` binds.
+  """
+  fun name(): String val => "NdIdSeq"
+
+primitive NdIf
+  """
+  An `if` or an `elseif`, with its condition and branches.
+  """
+  fun name(): String val => "NdIf"
+
+primitive NdIfDef
+  """
+  An `ifdef`, with its condition and branches.
+  """
+  fun name(): String val => "NdIfDef"
+
+primitive NdIfTypeSet
+  """
+  An `iftype` and the clauses it chooses between.
+  """
+  fun name(): String val => "NdIfTypeSet"
+
+primitive NdIfType
+  """
+  One `T <: U then ...` clause of an `iftype`.
+  """
+  fun name(): String val => "NdIfType"
+
+primitive NdElse
+  """
+  An `else` branch.
+  """
+  fun name(): String val => "NdElse"
+
+primitive NdThen
+  """
+  The `then` branch of a `try`.
+  """
+  fun name(): String val => "NdThen"
+
+primitive NdMatch
+  """
+  A `match`, its subject and its cases.
+  """
+  fun name(): String val => "NdMatch"
+
+primitive NdCases
+  """
+  The cases of a `match`.
+  """
+  fun name(): String val => "NdCases"
+
+primitive NdCase
+  """
+  One `| pattern => body` case.
+  """
+  fun name(): String val => "NdCase"
+
+primitive NdGuard
+  """
+  The `if` guard of a match case.
+  """
+  fun name(): String val => "NdGuard"
+
+primitive NdWhile
+  """
+  A `while` loop.
+  """
+  fun name(): String val => "NdWhile"
+
+primitive NdRepeat
+  """
+  A `repeat` loop.
+  """
+  fun name(): String val => "NdRepeat"
+
+primitive NdFor
+  """
+  A `for` loop.
+  """
+  fun name(): String val => "NdFor"
+
+primitive NdWith
+  """
+  A `with` block.
+  """
+  fun name(): String val => "NdWith"
+
+primitive NdWithElem
+  """
+  One `name = expression` of a `with`.
+  """
+  fun name(): String val => "NdWithElem"
+
+primitive NdTry
+  """
+  A `try` block.
+  """
+  fun name(): String val => "NdTry"
+
+primitive NdRecover
+  """
+  A `recover` block.
+  """
+  fun name(): String val => "NdRecover"
+
+primitive NdConsume
+  """
+  A `consume` expression.
+  """
+  fun name(): String val => "NdConsume"
+
+primitive NdObject
+  """
+  An object literal.
+  """
+  fun name(): String val => "NdObject"
+
+primitive NdLambda
+  """
+  A lambda literal.
+  """
+  fun name(): String val => "NdLambda"
+
+primitive NdBareLambda
+  """
+  A bare lambda literal.
+  """
+  fun name(): String val => "NdBareLambda"
+
+primitive NdLambdaParams
+  """
+  The parameters of a lambda.
+  """
+  fun name(): String val => "NdLambdaParams"
+
+primitive NdLambdaParam
+  """
+  One parameter of a lambda.
+  """
+  fun name(): String val => "NdLambdaParam"
+
+primitive NdLambdaCaptures
+  """
+  The captures of a lambda.
+  """
+  fun name(): String val => "NdLambdaCaptures"
+
+primitive NdLambdaCapture
+  """
+  One capture of a lambda.
+  """
+  fun name(): String val => "NdLambdaCapture"
 
 type NodeKind is
   ( NdError
@@ -248,9 +508,55 @@ type NodeKind is
   | NdValueFormalArg
   | NdConstExpr
   | NdDefaultArg
-  | NdBody
-  | NdBlock
-  | NdGroup
+  | NdSeq
+  | NdJump
+  | NdAssign
+  | NdBinOp
+  | NdUnaryOp
+  | NdAsOp
+  | NdDot
+  | NdTilde
+  | NdChain
+  | NdQualify
+  | NdCall
+  | NdArgs
+  | NdNamedArgs
+  | NdNamedArg
+  | NdRef
+  | NdThis
+  | NdLocation
+  | NdGrouped
+  | NdTuple
+  | NdArray
+  | NdArrayType
+  | NdFFICall
+  | NdLocal
+  | NdIdSeq
+  | NdIf
+  | NdIfDef
+  | NdIfTypeSet
+  | NdIfType
+  | NdElse
+  | NdThen
+  | NdMatch
+  | NdCases
+  | NdCase
+  | NdGuard
+  | NdWhile
+  | NdRepeat
+  | NdFor
+  | NdWith
+  | NdWithElem
+  | NdTry
+  | NdRecover
+  | NdConsume
+  | NdObject
+  | NdLambda
+  | NdBareLambda
+  | NdLambdaParams
+  | NdLambdaParam
+  | NdLambdaCaptures
+  | NdLambdaCapture
   )
   """
   Every kind of interior node. Grows as grammar rules are ported.

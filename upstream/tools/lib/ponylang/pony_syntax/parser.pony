@@ -161,12 +161,27 @@ class Parser
         (k, (_offset - from).u32(), (_elems.size() - index).u32())
     end
 
+  fun pos(): USize =>
+    """
+    How far the parser has read.
+
+    Two reads with the same value mean the rule between them consumed
+    nothing, which a loop must not go around again.
+    """
+    _index
+
   fun ref checkpoint(): (USize, USize) =>
     """
     Where a node would begin if one were opened now: the element index and
     the byte offset. Give it to `wrap_from` to put a node around everything
     parsed since.
+
+    Flushes pending trivia first, as `start` does. Trivia belongs to the
+    node being built, not to the one that may later be wrapped around this
+    point: without the flush an infix operand begins at the space before
+    it, and every extent taken from it is a character wide of the mark.
     """
+    flush_trivia()
     (_elems.size(), _offset)
 
   fun ref wrap_from(mark: (USize, USize), k: NodeKind) =>

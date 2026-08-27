@@ -145,13 +145,18 @@ primitive _Foldable
       let out = Array[FoldingRegion]
 
       for (element, _, at, kind, width) in tree.walk() do
-        // Declarations and the balanced regions inside a body. Not the
-        // member list, whose extent is the entity's own but for the
-        // signature line, and not a docstring: a fold that hides what a
-        // thing is for is a fold nobody wants.
+        // Declarations and the constructs inside a body that a keyword
+        // opens and an `end` or a brace closes. Not the member list, whose
+        // extent is the entity's own but for the signature line, and not a
+        // docstring: a fold that hides what a thing is for is a fold
+        // nobody wants.
         let fold_kind =
           match kind
-          | NdClassDef | NdMethod | NdBlock => FoldRegion
+          | NdClassDef | NdMethod
+          | NdIf | NdIfDef | NdIfTypeSet
+          | NdWhile | NdRepeat | NdFor | NdWith
+          | NdTry | NdMatch | NdRecover | NdObject
+          | NdLambda | NdBareLambda => FoldRegion
           else
             continue
           end

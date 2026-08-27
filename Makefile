@@ -10,7 +10,7 @@ LIBS       := upstream/tools/lib/ponylang
 BRIDGE     := $(LIBS)/pony_compiler
 PATHS      := --path $(BRIDGE) --path $(LIBS) --path $(PONYC_LIB)
 
-.PHONY: all test syntax-test lsp lsp-test corpus clean
+.PHONY: all test syntax-test lsp lsp-test tools corpus mutants clean
 
 all: test
 
@@ -36,9 +36,12 @@ lsp-test: packages
 packages:
 	ln -sfn $(PONYC_ROOT)/packages packages
 
-# Whole-corpus checks: the lexer against ponyc's, every file reprinting from
-# its tree, and the facts projecting without a gap. See tools/agreement.
-corpus: packages
+# Every Pony file in the ponyc tree, not only the standard library: its own
+# test fixtures are where the grammar's edge cases live. Two of them have a
+# space in the path, so the list goes through a file rather than a glob.
+CORPUS := build/corpus.txt
+
+tools: packages
 	ponyc -b dump -o tools/agreement tools/agreement/dump_src
 	gcc -O2 -o tools/agreement/ponyc_dump tools/agreement/ponyc_dump.c \
 	  -Itools/agreement \
@@ -46,12 +49,27 @@ corpus: packages
 	  -I$(PONYC_ROOT)/src/common \
 	  $(PONYC_LIB)/libponyc-standalone.a $(PONYC_LIB)/libponyrt-pic.a \
 	  -lstdc++ -lm -lz -lpthread -ldl -latomic
-	tools/agreement/check.py $(PONYC_ROOT)/packages/*/*.pony \
-	  $(PONYC_ROOT)/packages/*/*/*.pony
-	tools/agreement/dump --reprint $(PONYC_ROOT)/packages/*/*.pony \
-	  $(PONYC_ROOT)/packages/*/*/*.pony
-	tools/agreement/dump --facts $(PONYC_ROOT)/packages/*/*.pony \
-	  $(PONYC_ROOT)/packages/*/*/*.pony
+
+$(CORPUS):
+	mkdir -p build
+	find $(PONYC_ROOT) -path $(PONYC_ROOT)/build -prune -o \
+	  -name '*.pony' -print | sort > $@
+
+# Whole-corpus checks: the lexer against ponyc's, every file reprinting from
+# its tree, and the facts projecting without a gap. See tools/agreement.
+corpus: tools $(CORPUS)
+	xargs -a $(CORPUS) -d '\n' tools/agreement/check.py
+	xargs -a $(CORPUS) -d '\n' tools/agreement/dump --reprint
+	xargs -a $(CORPUS) -d '\n' tools/agreement/dump --facts
+
+# The same losslessness over sources that are not valid Pony, because a file
+# being typed is not. Reports failures, not diagnostics: a mutant is meant
+# to produce those.
+mutants: tools $(CORPUS)
+	rm -rf build/mutants
+	xargs -a $(CORPUS) -d '\n' tools/agreement/mutate.py build/mutants
+	tools/agreement/dump --reprint build/mutants/*.pony | \
+	  grep -vE '^(DIAGNOSTICS|  )' 
 
 clean:
 	rm -rf build
