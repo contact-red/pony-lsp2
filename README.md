@@ -30,5 +30,11 @@ library, parses every one of them with no diagnostic, and reprints each byte
 for byte from its tree. The analysis layer projects 9267 declarations from
 them without a gap.
 
-The vendored pony-lsp builds and its 332 tests pass unmodified, which is the
-baseline any change here is measured against.
+All four syntax features -- outline, folding, selection and syntax
+diagnostics -- answer from the buffer, so they work on an unsaved file and on
+one that does not compile. The other twelve still answer from the last
+compile, and now say so: a position drawn from it is refused once the buffer
+has moved, hover keeps its content and drops its range, and a rename refuses
+while any open document has unsaved changes.
+
+342 tests pass, against the 332 the vendored copy started with.

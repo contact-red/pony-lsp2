@@ -26,6 +26,9 @@ primitive \nodoc\ _HoverIntegrationTests is TestList
     test(_HoverIntegrationCapKeywordTest.create(server))
     test(_HoverIntegrationFieldDocstringTest.create(server))
     test(_HoverIntegrationLambdaTest.create(server))
+    // Its own server: this one edits a buffer, and the others share a
+    // compile that assumes the files are what is on disk.
+    test(_HoverStaleBufferTest.create(_LspTestServer(workspace_dir)))
 
 class \nodoc\ iso _HoverIntegrationLiteralsTest is UnitTest
   let _server: _LspTestServer
@@ -737,3 +740,66 @@ class val _HoverChecker
       end
     end
     ok
+
+class \nodoc\ iso _HoverStaleBufferTest is UnitTest
+  """
+  Hover keeps its content when the buffer has unsaved edits, and drops
+  its range.
+
+  What a thing is does not change when the lines around it move, so the
+  text is still worth showing. Where it is does change, and a highlight
+  over the wrong span is a worse answer than no highlight -- it points at
+  something and says nothing about being unsure. The LSP makes `range`
+  optional for this.
+  """
+  let _server: _LspTestServer
+
+  new iso create(server: _LspTestServer) =>
+    _server = server
+
+  fun name(): String => "hover/integration/stale_buffer"
+
+  fun apply(h: TestHelper) =>
+    _RunLspChecks(
+      h,
+      _server,
+      "hover/_class.pony",
+      // The same position hover/integration/class asks about.
+      [_HoverStaleChecker(0, 6)]
+      where edit = "class _Replaced\n  let x: U32 = 0\n")
+
+class \nodoc\ val _HoverStaleChecker
+  """
+  Asserts a hover response that has content and no range.
+  """
+  let _line: I64
+  let _character: I64
+
+  new val create(line': I64, character': I64) =>
+    _line = line'
+    _character = character'
+
+  fun lsp_method(): String =>
+    Methods.text_document().hover()
+
+  fun lsp_params(): (None | JSONObject) =>
+    JSONObject.update(
+      "position",
+      JSONObject.update("line", _line).update("character", _character))
+
+  fun check(res: ResponseMessage val, h: TestHelper): Bool =>
+    var has_contents = false
+    var has_range = false
+    try
+      JSONNav(res.result)("contents").as_object()?
+      has_contents = true
+    end
+    try
+      JSONNav(res.result)("range").as_object()?
+      has_range = true
+    end
+    h.assert_true(has_contents,
+      "hover lost its content as well as its range")
+    h.assert_false(has_range,
+      "hover kept a range describing text the buffer has moved past")
+    has_contents and (not has_range)

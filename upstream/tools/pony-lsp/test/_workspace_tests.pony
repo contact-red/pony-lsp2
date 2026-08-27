@@ -17,6 +17,8 @@ primitive \nodoc\ _WorkspaceTests is TestList
     test(_DocumentStateHoldsTheBuffer)
     test(_DocumentStateRefusesOlderText)
     test(_DocumentStateVersionsAreItsOwn)
+    test(_DocumentStateTracksEditsAgainstDisk)
+    test(_PackageStateReportsAnyStale)
 
 class \nodoc\ iso _RouterFindTest is UnitTest
   fun name(): String => "router/find"
@@ -220,3 +222,54 @@ class \nodoc\ iso _DocumentStateVersionsAreItsOwn is UnitTest
     h.assert_eq[USize](second, doc.text_version(),
       "refused text advanced the version")
     h.assert_eq[String]("b", doc.text() as String val)
+
+class \nodoc\ iso _DocumentStateTracksEditsAgainstDisk is UnitTest
+  fun name(): String => "document_state/tracks edits against disk"
+
+  fun apply(h: TestHelper) =>
+    """
+    Everything a compile produces describes the file on disk, so its
+    positions are right exactly while the buffer agrees with it. didOpen
+    hands over what is on disk; a change is what makes them differ; a save
+    makes them agree again.
+    """
+    let doc = DocumentState("/tmp/x.pony", FakeChannel)
+    h.assert_false(doc.is_stale(), "stale before anything happened")
+
+    doc.set_text("class Foo", 1 where from_disk = true)
+    h.assert_false(doc.is_stale(), "opening a file made it stale")
+
+    doc.set_text("class Foo\n  fun f() => None", 2)
+    h.assert_true(doc.is_stale(), "an edit did not make it stale")
+
+    doc.mark_saved()
+    h.assert_false(doc.is_stale(), "a save did not clear it")
+
+    doc.set_text("class Foo\n  fun g() => None", 3)
+    h.assert_true(doc.is_stale(), "a later edit did not make it stale")
+
+class \nodoc\ iso _PackageStateReportsAnyStale is UnitTest
+  fun name(): String => "package_state/reports any stale document"
+
+  fun apply(h: TestHelper) =>
+    """
+    The question a rename has to ask. It walks every module of the last
+    compile and emits an edit for each occurrence, so the file that gets
+    corrupted is not necessarily the one the rename started in.
+    """
+    let auth = FileAuth(h.env.root)
+    let pkg = PackageState(FilePath(auth, "/tmp"), FakeChannel)
+    let a = pkg.ensure_document("/tmp/a.pony")
+    let b = pkg.ensure_document("/tmp/b.pony")
+
+    a.set_text("class A", 1 where from_disk = true)
+    b.set_text("class B", 1 where from_disk = true)
+    h.assert_false(pkg.any_stale(), "clean package reported stale")
+
+    // An edit in one document is enough, and it need not be the one
+    // anybody is about to ask about.
+    b.set_text("class B\n  fun f() => None", 2)
+    h.assert_true(pkg.any_stale(), "an edited document was not noticed")
+
+    b.mark_saved()
+    h.assert_false(pkg.any_stale(), "a save did not clear it")

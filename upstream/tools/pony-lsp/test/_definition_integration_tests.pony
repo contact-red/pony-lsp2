@@ -20,6 +20,9 @@ primitive \nodoc\ _DefinitionIntegrationTests is TestList
     test(_DefinitionTupleIntegrationTest.create(server))
     test(_DefinitionTypeAliasIntegrationTest.create(server))
     test(_DefinitionLastEntityBarePrimTest.create(server))
+    // Its own server: this one edits a buffer, and the others share a
+    // compile that assumes the files are what is on disk.
+    test(_DefinitionStaleBufferTest.create(_LspTestServer(workspace_dir)))
 
 class \nodoc\ iso _DefinitionClassIntegrationTest is UnitTest
   let _server: _LspTestServer
@@ -294,3 +297,34 @@ class val _DefinitionChecker
       end
     end
     ok
+
+class \nodoc\ iso _DefinitionStaleBufferTest is UnitTest
+  """
+  Go to definition refuses to answer about a buffer with unsaved edits.
+
+  Everything the compile produced describes the file on disk. Once the
+  buffer differs, a location drawn from it names a line that may have
+  moved, and an answer that is merely close is worse than none -- it puts
+  the cursor somewhere the user did not ask for, with nothing to say it
+  is wrong.
+
+  The same edit is what makes the outline and the syntax errors update,
+  so this is a refusal to guess rather than an inability to see.
+  """
+  let _server: _LspTestServer
+
+  new iso create(server: _LspTestServer) =>
+    _server = server
+
+  fun name(): String => "definition/integration/stale_buffer"
+
+  fun apply(h: TestHelper) =>
+    _RunLspChecks(
+      h,
+      _server,
+      "definition/_class.pony",
+      // Position 7:4 resolves to a field declaration when the buffer
+      // matches disk -- that is what definition/integration/class
+      // asserts. With an edit outstanding, no location at all.
+      [_DefinitionChecker(7, 4, [])]
+      where edit = "class _Class\n  let _replaced: U32 = 0\n")

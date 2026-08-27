@@ -49,15 +49,17 @@ actor _LspTestServer is Channel
     h: TestHelper,
     workspace_file: String,
     checker: _RoundTripCheck val,
-    action: String)
+    action: String,
+    edit: (String val | None) = None)
   =>
     let file_path = Path.join(_workspace_dir, workspace_file)
-    let pending = _PendingRequest(file_path, action, h, checker)
+    let pending = _PendingRequest(file_path, action, h, checker, edit)
     if _ready then
       if not _opened.contains(file_path) then
         _opened.set(file_path)
         _did_open(file_path)
       end
+      _apply_edit(pending)
       _dispatch(pending)
     else
       _pending.push(pending)
@@ -70,6 +72,32 @@ actor _LspTestServer is Channel
         BaseProtocol(LanguageServer(this, h.env, PonyCompiler("", ponyc)))
       _server = proto
       proto(LspMsg.initialize(_workspace_dir))
+    end
+
+  fun ref _apply_edit(pending: _PendingRequest) =>
+    """
+    Send the pending request's edit, if it has one, as a didChange.
+    """
+    match pending.edit
+    | let text: String val =>
+      _send_change(pending.file_path, text, 2)
+    end
+
+  fun ref _send_change(file_path: String, text: String val, version: I64) =>
+    try
+      (_server as BaseProtocol)(
+        Notification(
+          Methods.text_document().did_change(),
+          JSONObject
+            .update(
+              "textDocument",
+              JSONObject
+                .update("uri", Uris.from_path(file_path))
+                .update("version", version))
+            .update(
+              "contentChanges",
+              JSONArray.push(JSONObject.update("text", text)))
+        ).into_bytes())
     end
 
   fun ref _dispatch(pending: _PendingRequest) =>
@@ -150,6 +178,7 @@ actor _LspTestServer is Channel
               _opened.set(p.file_path)
               _did_open(p.file_path)
             end
+            _apply_edit(p)
             _dispatch(p)
           end
           _pending.clear()
@@ -256,28 +285,43 @@ class val _PendingRequest
   let action: String
   let h: TestHelper
   let checker: _RoundTripCheck val
+  let edit: (String val | None)
+    """
+    Text to send as a didChange before the request, so a test can ask
+    what the server does about a buffer with unsaved changes. Applied
+    after the document is opened, or opening it would hand the file's own
+    contents back and undo the edit.
+    """
 
   new val create(
     file_path': String,
     action': String,
     h': TestHelper,
-    checker': _RoundTripCheck val)
+    checker': _RoundTripCheck val,
+    edit': (String val | None) = None)
   =>
     file_path = file_path'
     action = action'
     h = h'
     checker = checker'
+    edit = edit'
 
 primitive _RunLspChecks
   fun apply(
     h: TestHelper,
     server: _LspTestServer,
     workspace_file: String,
-    checks: Array[_RoundTripCheck val] val)
+    checks: Array[_RoundTripCheck val] val,
+    edit: (String val | None) = None)
   =>
+    """
+    Run each check against the document. With `edit`, the document is
+    changed to that text first, so a check can ask what the server does
+    about a buffer with unsaved changes.
+    """
     h.long_test(10_000_000_000)
     for checker in checks.values() do
       let action: String = (digestof checker).string()
       h.expect_action(action)
-      server.request(h, workspace_file, checker, action)
+      server.request(h, workspace_file, checker, action, edit)
     end

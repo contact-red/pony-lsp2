@@ -29,6 +29,9 @@ primitive \nodoc\ _RenameIntegrationTests is TestList
     test(_RenameActorBeTest.create(server))
     test(_RenameActorBeFromCallTest.create(server))
     test(_RenameSingleOccurrenceTest.create(server))
+    // Its own server: this one edits a buffer, and the others share a
+    // compile that assumes the files are what is on disk.
+    test(_RenameStaleWorkspaceTest.create(_LspTestServer(workspace_dir)))
     test(_PrepareRenameFieldTest.create(server))
     test(_PrepareRenameLiteralTest.create(server))
     test(_PrepareRenameStdlibTest.create(server))
@@ -852,3 +855,37 @@ class \nodoc\ iso _PrepareRenameStdlibTest is UnitTest
       _server,
       "rename/renameable.pony",
       [_PrepareRenameErrorChecker(16, 14, ErrorCodes.request_failed())])
+
+class \nodoc\ iso _RenameStaleWorkspaceTest is UnitTest
+  """
+  Rename refuses while any open document has unsaved edits.
+
+  This is the one where a wrong answer does damage rather than being
+  merely unhelpful. A rename walks every module of the last compile and
+  emits an edit for each occurrence, and the client applies those edits
+  verbatim -- a range that is off by two lines does not fail, it changes
+  the wrong text, in one undo step, possibly in a file the user was not
+  looking at.
+
+  So the question is not whether the document being renamed from is
+  clean. It is whether any of them is dirty.
+  """
+  let _server: _LspTestServer
+
+  new iso create(server: _LspTestServer) =>
+    _server = server
+
+  fun name(): String => "rename/integration/stale_workspace"
+
+  fun apply(h: TestHelper) =>
+    _RunLspChecks(
+      h,
+      _server,
+      "rename/renameable.pony",
+      // The same position and name that rename/integration/field renames
+      // successfully. With an edit outstanding, an error -- a client shows
+      // that to the user, where a null it reads as "nothing to rename
+      // here", which is a different thing and not what happened.
+      [ _RenameErrorChecker(
+          16, 6, "new_value", ErrorCodes.request_failed())]
+      where edit = "class Renameable\n  let _replaced: U32 = 0\n")

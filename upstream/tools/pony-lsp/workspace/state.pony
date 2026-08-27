@@ -108,6 +108,18 @@ class PackageState
       end
     end
 
+  fun box any_stale(): Bool =>
+    """
+    Whether any open document in this package has moved past what was
+    compiled.
+    """
+    for doc_state in _documents.values() do
+      if doc_state.is_stale() then
+        return true
+      end
+    end
+    false
+
   fun ref add_diagnostic(run_id: USize, diagnostic: Diagnostic) =>
     if run_id >= _compiler_run_id then
       _compiler_run_id = run_id
@@ -151,6 +163,16 @@ class DocumentState
     The client's version of the text held, used only to drop a
     notification that arrives after a newer one.
     """
+  var _edited: Bool
+    """
+    Whether the buffer has been edited since it last matched the file on
+    disk.
+
+    That is the question a position has to ask. Everything drawn from a
+    compile describes what was on disk, so while the two agree its
+    positions are right, and from the first unsaved edit they are not.
+    Set by a change, cleared by a save.
+    """
   var _facts: (analysis.DocumentFacts | None)
     """
     What syntax alone says about the buffer: an outline, foldable regions,
@@ -174,7 +196,21 @@ class DocumentState
     _text = None
     _text_version = 0
     _client_version = -1
+    _edited = false
     _facts = None
+
+  fun ref mark_saved() =>
+    """
+    The buffer has been written to disk, so the two agree again.
+    """
+    _edited = false
+
+  fun box is_stale(): Bool =>
+    """
+    Whether the buffer has moved past the file everything compiled was
+    read from.
+    """
+    _edited
 
   fun ref update(run_id: USize, module': Module val) =>
     if run_id >= _compiler_run_id then
@@ -190,7 +226,12 @@ class DocumentState
       _hash.update(run_id, module'.hash())
     end
 
-  fun ref set_text(text': String val, client_version': I64): Bool =>
+  fun ref set_text(
+    text': String val,
+    client_version': I64,
+    from_disk: Bool = false)
+    : Bool
+  =>
     """
     Take the client's text as the current state of this document.
 
@@ -208,6 +249,9 @@ class DocumentState
     _client_version = client_version'
     _text_version = _text_version + 1
     _facts = analysis.DocumentFacts(text')
+    // didOpen hands over what is on disk; a change is what makes the two
+    // differ.
+    _edited = not from_disk
     true
 
   fun box text(): (String val | None) =>

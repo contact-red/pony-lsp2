@@ -387,7 +387,9 @@ actor WorkspaceManager
     // copy is what the user is looking at rather than what is on disk.
     match _full_text(notification)
     | let text: String val =>
-      if doc_state.set_text(text, _client_version(notification)) then
+      if doc_state.set_text(
+        text, _client_version(notification) where from_disk = true)
+      then
         _publish_syntax_diagnostics(document_path, doc_state)
       end
     end
@@ -473,6 +475,65 @@ actor WorkspaceManager
         .query_one(notification.params) as String
     end
     None
+
+  fun _document_stale(document_path: String): Bool =>
+    """
+    Whether this document's buffer has moved past what was compiled.
+    """
+    try
+      let package: FilePath = this._find_workspace_package(document_path)?
+      match \exhaustive\ this._get_package(package)
+      | let pkg_state: PackageState box =>
+        match \exhaustive\ pkg_state.get_document(document_path)
+        | let doc: DocumentState box => doc.is_stale()
+        | None => false
+        end
+      | None => false
+      end
+    else
+      false
+    end
+
+  fun _workspace_stale(): Bool =>
+    """
+    Whether any open document in the workspace has moved past what was
+    compiled.
+
+    The question a write has to ask. A rename walks every module of the
+    last compile and emits an edit for each occurrence, so an edit for a
+    file the user has since changed lands at coordinates that have moved.
+    Asking only about the document the rename started in would not catch
+    it: the file that gets corrupted is a different one.
+    """
+    for pkg_state in this._packages.values() do
+      if pkg_state.any_stale() then
+        return true
+      end
+    end
+    false
+
+  fun ref _refuse_if_stale(
+    document_path: String,
+    request: RequestMessage val)
+    : Bool
+  =>
+    """
+    Answer nothing, and say so, when a request whose answer is a position
+    is asked about a buffer that has moved.
+
+    A location is useful only if it is where the cursor would land. One
+    drawn from the last compile describes text that has since changed, and
+    an answer that is merely close is worse than none.
+    """
+    if _document_stale(document_path) then
+      this._channel.log(
+        "[" + request.method + "] " + document_path +
+        " has unsaved edits; no answer rather than one about older text")
+      this._channel.send(ResponseMessage.create(request.id, None))
+      true
+    else
+      false
+    end
 
   fun _document_facts(document_path: String)
     : (analysis.DocumentFacts | None)
@@ -575,6 +636,7 @@ actor WorkspaceManager
     try
       let package: FilePath = this._find_workspace_package(document_path)?
       let package_state = this._ensure_package(package)
+      package_state.ensure_document(document_path).mark_saved()
       if this._compiling then
         // put the hash of the doc at saving time
         let text_content_hash =
@@ -660,7 +722,10 @@ actor WorkspaceManager
       | let hover_text: String =>
         // Use the original hover node for highlighting,
         // not any definition it may reference
-        let hover_response = _build_hover_response(hover_text, hover_node)
+        let hover_response =
+          _build_hover_response(
+            hover_text, hover_node
+            where with_range = not _document_stale(document_path))
         this._channel.send(ResponseMessage( request.id, hover_response))
         return
       | None =>
@@ -785,9 +850,20 @@ actor WorkspaceManager
       None
     end
 
-  fun _build_hover_response(hover_text: String, ast: AST box): JSONValue =>
+  fun _build_hover_response(
+    hover_text: String,
+    ast: AST box,
+    with_range: Bool = true)
+    : JSONValue
+  =>
     """
     Build the LSP Hover response JSON from hover text and AST node.
+
+    The range is omitted when the buffer has unsaved edits. What a thing
+    is does not change when the lines around it move, so the text is still
+    worth showing; where it is does, and highlighting the wrong span is a
+    worse answer than highlighting none. The LSP makes `range` optional
+    for exactly this.
     """
     let hover_contents = JSONObject
       .update("kind", "markdown")
@@ -802,9 +878,12 @@ actor WorkspaceManager
         LspPosition.from_ast_pos(start_pos),
         LspPosition.from_ast_pos_end(end_pos))
 
-    JSONObject
-      .update("contents", hover_contents)
-      .update("range", hover_range.to_json())
+    let response = JSONObject.update("contents", hover_contents)
+    if with_range then
+      response.update("range", hover_range.to_json())
+    else
+      response
+    end
 
   be document_highlight(document_uri: String, request: RequestMessage val) =>
     """
@@ -817,6 +896,7 @@ actor WorkspaceManager
       | None => return
       end
     let document_path = Uris.to_path(document_uri)
+    if _refuse_if_stale(document_path, request) then return end
     match _find_node_and_module(document_path, line, column)
     | (let node: AST box, let module: Module val) =>
       let highlights = DocumentHighlights.collect(node, module)
@@ -850,6 +930,7 @@ actor WorkspaceManager
         true
       end
     let document_path = Uris.to_path(document_uri)
+    if _refuse_if_stale(document_path, request) then return end
     match _find_node_and_module(document_path, line, column)
     | (let node: AST box, _) =>
       let locations =
@@ -879,6 +960,7 @@ actor WorkspaceManager
       | None => return
       end
     let document_path = Uris.to_path(document_uri)
+    if _refuse_if_stale(document_path, request) then return end
     match _find_node_and_module(document_path, line, column)
     | (let node: AST box, _) =>
       let target: AST val =
@@ -960,6 +1042,21 @@ actor WorkspaceManager
       return
     end
     let document_path = Uris.to_path(document_uri)
+    if _workspace_stale() then
+      // An error rather than an empty answer. A client shows an error to
+      // the user; a null it treats as "there is nothing to rename here",
+      // which is a different thing and not what happened.
+      this._channel.send(
+        ResponseMessage.create(
+          request.id,
+          None,
+          ResponseError(
+            ErrorCodes.request_failed(),
+            "Cannot rename while a document has unsaved changes: the " +
+            "edits would be placed using positions from the last saved " +
+            "version. Save and try again.")))
+      return
+    end
     match _find_node_and_module(document_path, line, column)
     | (let node: AST box, _) =>
       match \exhaustive\ Rename.collect(
@@ -991,6 +1088,7 @@ actor WorkspaceManager
       | None => return
       end
     let document_path = Uris.to_path(document_uri)
+    if _refuse_if_stale(document_path, request) then return end
     match \exhaustive\ _find_node_and_module(document_path, line, column)
     | (let ast: AST box, _) =>
       this._channel.log(ast.debug())
@@ -1025,6 +1123,7 @@ actor WorkspaceManager
       | None => return
       end
     let document_path = Uris.to_path(document_uri)
+    if _refuse_if_stale(document_path, request) then return end
     match \exhaustive\ _find_node_and_module(document_path, line, column)
     | (let ast: AST box, _) =>
       this._channel.log(ast.debug())
@@ -1225,6 +1324,14 @@ actor WorkspaceManager
     """
     this._channel.log("Handling textDocument/inlayHint")
     let document_path = Uris.to_path(document_uri)
+    if _document_stale(document_path) then
+      // A hint is drawn at a position. When the buffer has moved past what
+      // was compiled, every one of them would be drawn in the wrong place,
+      // and a hint in the wrong place reads as a claim about whatever is
+      // now there.
+      this._channel.send(ResponseMessage(request.id, JSONArray))
+      return
+    end
     try
       let package: FilePath = this._find_workspace_package(document_path)?
       match \exhaustive\ this._get_package(package)
