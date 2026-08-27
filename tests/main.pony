@@ -14,3 +14,4 @@ actor \nodoc\ Main is TestList
     """
     _TokenKindTests.tests(test)
     _LexerTests.tests(test)
+    _TreeTests.tests(test)

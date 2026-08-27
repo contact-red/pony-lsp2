@@ -32,7 +32,9 @@ primitive \nodoc\ _Lex
     let out = Array[(String val, String val)]
     for (kind, offset, width) in stream.values() do
       out.push((kind.name(),
-        recover val src.substring(offset.isize(), (offset + width).isize()) end))
+        recover val
+          src.substring(offset.isize(), (offset + width).isize())
+        end))
     end
     out
 
@@ -236,7 +238,8 @@ class \nodoc\ iso _TestNewlineForms is UnitTest
     h.assert_eq[String]("TkLparenNew TkRparen TkEof",
       _Lex.kinds("()"))
     // A nested comment suppresses the newline form.
-    h.assert_eq[String]("TkId TkWhitespace TkNestedComment TkLparen TkRparen TkEof",
+    h.assert_eq[String](
+      "TkId TkWhitespace TkNestedComment TkLparen TkRparen TkEof",
       _Lex.kinds("f\n/* c */()"))
 
 class \nodoc\ iso _TestNumbers is UnitTest

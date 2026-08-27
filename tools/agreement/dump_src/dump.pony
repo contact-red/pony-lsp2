@@ -3,16 +3,55 @@ use "../../../pony_syntax"
 
 actor \nodoc\ Main
   """
-  Dump the non-trivia tokens of each file given, as ponyc's token name and
-  the exact source text, tab separated. Compared against ponyc's own lexer
-  by `tools/agreement/check.py`.
+  Two corpus checks over the files named on the command line.
+
+  With no flag: dump the non-trivia token kinds of each file, as ponyc's
+  token name, for comparison against ponyc's own lexer by `check.py`.
+
+  With `--reprint`: parse each file and report any whose tree does not
+  reprint to the source it was built from, and any with more than one root.
+  Losslessness over real code rather than over cases someone thought of.
   """
   new create(env: Env) =>
     let auth = FileAuth(env.root)
-    for path in env.args.slice(1).values() do
-      try
-        let file = OpenFile(FilePath(auth, path)) as File
-        let src = recover val String.from_array(file.read(file.size())) end
+    let args = env.args.slice(1)
+    var reprint = false
+    let paths = Array[String]
+    for a in args.values() do
+      if a == "--reprint" then reprint = true else paths.push(a) end
+    end
+
+    var checked: USize = 0
+    var bad: USize = 0
+
+    for path in paths.values() do
+      let src =
+        try
+          let file = OpenFile(FilePath(auth, path)) as File
+          recover val String.from_array(file.read(file.size())) end
+        else
+          continue
+        end
+
+      if reprint then
+        checked = checked + 1
+        let tree = Parse(src)
+        if tree.reprint() != src then
+          bad = bad + 1
+          env.out.print("REPRINT " + path)
+        end
+        try
+          if tree.subtree_size(0)? != tree.size() then
+            bad = bad + 1
+            env.out.print("MULTIROOT " + path)
+          end
+        else
+          if src.size() > 0 then
+            bad = bad + 1
+            env.out.print("NOROOT " + path)
+          end
+        end
+      else
         env.out.print("### " + path)
         let stream = recover val TokenStream(src) end
         for (kind, offset, width) in stream.values() do
@@ -23,4 +62,8 @@ actor \nodoc\ Main
           end
         end
       end
+    end
+
+    if reprint then
+      env.out.print("files " + checked.string() + ", failures " + bad.string())
     end

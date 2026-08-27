@@ -27,11 +27,28 @@ for -- `token_id_desc` gives a human description, not a name.
 The Pony sources live in `dump_src/` rather than beside `ponyc_dump.c`
 because ponyc compiles any C source it finds in a package directory.
 
+## The reprint check
+
+The same binary, with `--reprint`, parses each file instead and reports any
+whose tree does not reprint to the source byte for byte, and any whose root
+does not span every element:
+
+    ./dump --reprint <ponyc>/packages/**/*.pony
+
+Losslessness over real code, rather than over cases someone thought of.
+
 ## Result
 
-255 of 255 files in ponyc's `packages/` agree.
+255 of 255 files in ponyc's `packages/` agree on tokens, and 255 of 255
+reprint from their tree with a single root.
 
 The one disagreement this found and hand-written tests did not: a raw
 newline inside a single-quoted string. ponyc's `string` scans to the closing
 quote or the end of the source and checks nothing else, and
 `files/_non_root_test.pony` relies on it.
+
+The reprint check found what the unit tests did not: leading whitespace or a
+leading comment was emitted before the root node rather than inside it,
+because `start` flushed pending trivia into the enclosing node and the root
+has none. Fourteen files in the standard library begin that way. The unit
+test now includes sources that start with trivia.
