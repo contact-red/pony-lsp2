@@ -1,0 +1,13 @@
+{
+  "packages": [
+    "pony_syntax",
+    "tests"
+  ],
+  "deps": [],
+  "info": {
+    "description": "A lossless, error-tolerant syntax tree for Pony source",
+    "name": "pony_syntax",
+    "license": "BSD",
+    "version": ""
+  }
+}

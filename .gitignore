@@ -1,0 +1,8 @@
+# Build output
+*.o
+tests_bin
+
+# Compiled probes (itemparse/*.c is the source of record)
+itemparse/probe
+itemparse/toks
+itemparse/nodes
