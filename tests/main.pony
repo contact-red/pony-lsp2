@@ -16,3 +16,4 @@ actor \nodoc\ Main is TestList
     _LexerTests.tests(test)
     _TreeTests.tests(test)
     _GrammarTests.tests(test)
+    _LineIndexTests.tests(test)
