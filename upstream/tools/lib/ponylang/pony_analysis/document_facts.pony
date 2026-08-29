@@ -14,6 +14,7 @@ class val DocumentFacts
   """
   let source: String val
   let declarations: Array[Declaration] val
+  let uses: Array[UseDecl] val
   let foldable: Array[FoldingRegion] val
   let diagnostics: Array[Diagnostic] val
   let _tree: SyntaxTree val
@@ -41,6 +42,7 @@ class val DocumentFacts
       end
 
     declarations = _Declarations(_tree, _index, _offsets, source')
+    uses = _Uses(_tree, _index, _offsets, source')
     foldable = _Foldable(_tree, _index, _offsets)
     diagnostics =
       recover val

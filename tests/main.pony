@@ -1,6 +1,7 @@
 use "pony_test"
 use "../upstream/tools/lib/ponylang/pony_syntax"
 use "../upstream/tools/lib/ponylang/pony_query"
+use "../upstream/tools/lib/ponylang/pony_bind"
 
 actor \nodoc\ Main is TestList
   new create(env: Env) =>
@@ -20,3 +21,4 @@ actor \nodoc\ Main is TestList
     _LineIndexTests.tests(test)
     _AnalysisTests.tests(test)
     _QueryTests.tests(test)
+    _BindTests.tests(test)

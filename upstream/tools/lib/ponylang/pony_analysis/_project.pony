@@ -249,3 +249,100 @@ primitive _Selectable
     else
       false
     end
+
+primitive _Uses
+  """
+  Project the `use` declarations out of a tree.
+
+  Only the ones that name a Pony package. An `NdUse` holding an `NdUseFFI`
+  names a C function; a `lib:` locator names a native library to link and a
+  `path:` one adds a search path. ponyc has exactly these schemes, and
+  `package:` -- the default when none is written -- is the only one a Pony
+  name resolves through.
+  """
+  fun apply(
+    tree: SyntaxTree val,
+    index: LineIndex,
+    offsets: Array[USize] val,
+    source: String val)
+    : Array[UseDecl] val
+  =>
+    recover val
+      let out = Array[UseDecl]
+
+      for (element, _, at, kind, width) in tree.walk() do
+        if not (kind is NdUse) then
+          continue
+        end
+
+        var alias = ""
+        var package = ""
+        var ffi = false
+
+        try
+          for child in tree.children(element)? do
+            let child_kind = tree.kind(child)?
+            if child_kind is NdUseFFI then
+              ffi = true
+              break
+            elseif child_kind is NdUseName then
+              for named in tree.children(child)? do
+                if tree.kind(named)? is TkId then
+                  alias = recover val tree.text(named)? end
+                end
+              end
+            elseif child_kind is TkString then
+              package = _Unquote(recover val tree.text(child)? end)
+            end
+          end
+        end
+
+        if (not ffi) and (package.size() > 0) then
+          match _Scheme(package)
+          | let located: String val =>
+            out.push(
+              UseDecl(located, alias, Span.from_bytes(index, at, at + width)))
+          end
+        end
+      end
+
+      out
+    end
+
+primitive _Unquote
+  """
+  The text of a string literal, without its quotes.
+
+  A `use` path admits no escapes, so taking the bytes between the quotes is
+  the whole of it.
+  """
+  fun apply(literal: String val): String val =>
+    let quoted = try literal(0)? == '"' else false end
+    if (literal.size() >= 2) and quoted then
+      literal.substring(1, literal.size().isize() - 1)
+    else
+      literal
+    end
+
+primitive _Scheme
+  """
+  What a `use` locator names, if it names a Pony package.
+
+  `None` for the schemes that do not: `lib:` links a native library and
+  `path:` adds a search path. An unknown scheme is ponyc's error to report,
+  and reading it as a package name would invent a dependency, so it is
+  dropped here too.
+  """
+  fun apply(locator: String val): (String val | None) =>
+    let colon =
+      try
+        locator.find(":")?
+      else
+        return locator
+      end
+    let scheme = locator.substring(0, colon)
+    if scheme == "package" then
+      locator.substring(colon + 1)
+    else
+      None
+    end

@@ -10,7 +10,7 @@ LIBS       := upstream/tools/lib/ponylang
 BRIDGE     := $(LIBS)/pony_compiler
 PATHS      := --path $(BRIDGE) --path $(LIBS) --path $(PONYC_LIB)
 
-.PHONY: all test syntax-test lsp lsp-test tools corpus mutants bench clean
+.PHONY: all test syntax-test lsp lsp-test tools corpus mutants bind bench clean
 
 all: test
 
@@ -70,6 +70,13 @@ mutants: tools $(CORPUS)
 	xargs -a $(CORPUS) -d '\n' tools/agreement/mutate.py build/mutants
 	tools/agreement/dump --reprint build/mutants/*.pony | \
 	  grep -vE '^(DIAGNOSTICS|  )' 
+
+# Every entity the standard library declares, resolved from its own file back
+# to itself, and every `use` naming a package the workspace has.
+bind:
+	ponyc -b bind-check -o build tools/bind_check
+	@./build/bind-check $(PONYC_ROOT)/packages \
+	  $(shell find $(PONYC_ROOT)/packages -name '*.pony' | sort)
 
 # The measurement question 2 of DESIGN.md says to take before committing to a
 # memo store. `actor_latency` is separate because pony_bench triggers a GC
