@@ -10,7 +10,7 @@ LIBS       := upstream/tools/lib/ponylang
 BRIDGE     := $(LIBS)/pony_compiler
 PATHS      := --path $(BRIDGE) --path $(LIBS) --path $(PONYC_LIB)
 
-.PHONY: all test syntax-test lsp lsp-test tools corpus mutants clean
+.PHONY: all test syntax-test lsp lsp-test tools corpus mutants bench clean
 
 all: test
 
@@ -70,6 +70,15 @@ mutants: tools $(CORPUS)
 	xargs -a $(CORPUS) -d '\n' tools/agreement/mutate.py build/mutants
 	tools/agreement/dump --reprint build/mutants/*.pony | \
 	  grep -vE '^(DIAGNOSTICS|  )' 
+
+# The measurement question 2 of DESIGN.md says to take before committing to a
+# memo store. `actor_latency` is separate because pony_bench triggers a GC
+# before every async iteration and so cannot measure a message.
+bench:
+	ponyc -b memo-bench -o build tools/memo_bench
+	ponyc -b actor-latency -o build tools/actor_latency
+	./build/memo-bench
+	./build/actor-latency
 
 clean:
 	rm -rf build
