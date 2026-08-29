@@ -1100,6 +1100,51 @@ dominates, B collapses into the persistent variant regardless of read cost. If
 simplicity and nothing further is needed for years. If 4 is cheap, D removes the
 reconciliation question entirely.
 
+### What the measurement said
+
+`tools/memo_bench` and `tools/actor_latency`, at 20937 entries:
+
+| | flat `val` map | `collections/persistent` |
+|---|---|---|
+| publish 1 entry | 2,773,046 ns | 664 ns |
+| publish 1000 | 2,818,722 ns | 804,058 ns |
+| build all from cold | 1,992,868 ns | 15,237,581 ns |
+| hit | 145 ns | 347 ns |
+
+Actor round trip 707 ns; pipelined 221 ns.
+
+**B with a persistent map.** Three things decided it:
+
+`concat` is a loop of `update`, not a bulk path — 1000 entries cost the same
+either way — so no second representation is bought by using one for cold
+builds and the other for edits. Since one representation has to serve both,
+the 13 ms extra on a cold build is the price, and it is noise beside a cold
+check that takes seconds. The 4,000x on an incremental publish is the case
+that happens on every keystroke.
+
+**The decision rule above fires for A, and the rule was measuring the wrong
+thing.** 707 ns against 347 ns is a small factor. But the rule assumes the
+round trip is paid per query, and it is not: under A the checker runs inside
+the owning actor, so recursive queries are direct calls on `ref` state and the
+round trip is paid once per language server request, which is already
+asynchronous. A's latency cost is nil. Its real cost is that it serialises —
+while a cold check runs, the actor answers nothing — and that is the blockage
+this work exists to remove. Read latency did not decide this; blocking did.
+
+**The persistent map is for the published snapshot, not for the engine.** The
+revision counter and dependency graph live inside one actor and are never
+shared, so they are plain mutable arrays. `Engine` holds no results at all:
+dependencies cross query kinds, so the graph has to be homogeneous, and a
+graph over heterogeneous typed values would have to be a graph over `Any`.
+Results stay in the caller's typed tables and the caller interns its own keys,
+which is also the only place that knows when two Pony types are structurally
+equal.
+
+Measurements 3 and 4 were not taken. A reader miss is not a performance
+question in this shape — it means "not computed at this revision yet", which
+is the `NotYetKnown` protocol above. The structural hash only matters if
+several workers intern at once, which nothing does yet.
+
 ## Question 3 — whether any of libponyc is kept
 
 **No. Write the lexer and parser in Pony, error-tolerant and lossless from the
@@ -1584,9 +1629,9 @@ waits, bounded, or it does not promise a retry.
   3-40ms, so this has no user-visible return at current sizes and should wait
   until something measures a need.
 - **Migrating pony-lint onto the tree**, once someone asks for it.
-- **The query engine proper** — memoization, dependency tracking, backdating,
-  and cycle handling once subtyping exists. Question 2 specifies it and the
-  measurement that picks the memo store.
+- ~~**The query engine proper**~~ — built, less cycle handling, which waits for
+  subtyping to need it. `pony_query` is 282 lines and depends on nothing but
+  `builtin`. Cycle handling is still future work.
 - **An item tree addressed by name path**, which `FINDINGS.md` identifies as the
   largest available win, fixing invalidation granularity and key interning at
   once. This design takes the name-path *identity* half; the addressing half —
