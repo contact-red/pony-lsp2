@@ -3,7 +3,6 @@ use "files"
 use "itertools"
 
 use "pony_compiler"
-use analysis = "pony_analysis"
 
 use ".."
 
@@ -173,16 +172,6 @@ class DocumentState
     positions are right, and from the first unsaved edit they are not.
     Set by a change, cleared by a save.
     """
-  var _facts: (analysis.DocumentFacts | None)
-    """
-    What syntax alone says about the buffer: an outline, foldable regions,
-    selection ranges and syntax errors.
-
-    Recomputed whenever the text is, rather than per request, because one
-    edit can be followed by several requests about it. Parsing a file is
-    milliseconds, which is what makes doing it per edit reasonable and
-    doing it per compile unnecessary.
-    """
 
   new create(path': String, channel': Channel) =>
     path = path'
@@ -197,7 +186,6 @@ class DocumentState
     _text_version = 0
     _client_version = -1
     _edited = false
-    _facts = None
 
   fun ref mark_saved() =>
     """
@@ -248,7 +236,6 @@ class DocumentState
     _text = text'
     _client_version = client_version'
     _text_version = _text_version + 1
-    _facts = analysis.DocumentFacts(text')
     // didOpen hands over what is on disk; a change is what makes the two
     // differ.
     _edited = not from_disk
@@ -267,14 +254,6 @@ class DocumentState
     """
     _text_version
 
-  fun box facts(): (analysis.DocumentFacts | None) =>
-    """
-    What syntax says about the buffer, or `None` if there is no buffer.
-
-    Always available once a document has been opened, whether or not it
-    compiles and whether or not it has been saved.
-    """
-    _facts
 
   fun ref add_diagnostic(run_id: USize, diagnostic: Diagnostic) =>
     // also accept diagnostics from the last/current run,

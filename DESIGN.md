@@ -1616,6 +1616,33 @@ waits, bounded, or it does not promise a retry.
 - **Can two actors call libponyc concurrently?** Yes, given one `pass_opt` each
   and no sharing. Audited; the evidence is in question 3.
 
+## What is wired to the buffer
+
+Seven of the eighteen rows above are answered from the buffer rather than
+from the last compile, and need no compile at all:
+
+| Feature | From |
+|---|---|
+| Document symbols, folding, selection range, syntax diagnostics | `pony_analysis` |
+| Workspace symbols | `pony_bind.matching` |
+| Go to definition / declaration -- locals, parameters, fields, type parameters | `pony_bind.resolve_at` |
+| Go to definition / declaration -- types the workspace declares | `pony_bind.resolve_at` |
+
+Go to definition tries the buffer first and falls through to the compiler
+for what needs a receiver's type. So it answers while typing where it can,
+and still refuses -- rather than guessing -- where only the compile knows.
+
+The workspace's own packages are read; a `use` reaching the standard library
+still resolves through the compiler, because the search paths live in the
+compiler actor and plumbing them out is its own change.
+
+Migrating these changed two ranges the compiler had been giving, and the
+change was taken deliberately rather than worked around. A type parameter's
+declaration is one character, where libponyc's span ran on past it; and a
+field's range is the whole declaration, where libponyc stopped at the type
+for `var` and `let` and after the `=` for `embed`. The protocol asks for the
+range enclosing the symbol, so the three now agree.
+
 ## Future work, written down rather than built
 
 - ~~**The 65 expression and statement rules**~~ — done. They landed as

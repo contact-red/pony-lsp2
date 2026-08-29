@@ -42,6 +42,17 @@ primitive FactsSymbols
     roots
 
   fun _kind(kind: analysis.DeclarationKind): I64 =>
+    FactsSymbolKind(kind)
+
+primitive FactsSymbolKind
+  """
+  A Pony declaration as the protocol's symbol kind.
+
+  Pony has more kinds of declaration than the protocol has symbols, so this
+  loses distinctions the outline keeps: a trait and an interface are both
+  interfaces here, and a primitive, a class and an actor are all classes.
+  """
+  fun apply(kind: analysis.DeclarationKind): I64 =>
     match kind
     | analysis.DeclInterface | analysis.DeclTrait =>
       SymbolKinds.sk_interface()

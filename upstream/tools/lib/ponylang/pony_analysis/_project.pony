@@ -525,7 +525,7 @@ class _Emitter
     The name a binding node binds.
     """
     match _BoundName(_tree, element)
-    | let named: USize => _push(named, kind, from, to)
+    | let named: USize => _push(element, named, kind, from, to)
     end
 
   fun ref all(
@@ -545,13 +545,16 @@ class _Emitter
       var i = element
       while i < (element + span) do
         if _tree.kind(i)? is TkId then
-          _push(i, kind, from, to)
+          // A name in an id sequence is its own whole declaration: there
+          // is no type and no initialiser to include.
+          _push(i, i, kind, from, to)
         end
         i = i + 1
       end
     end
 
   fun ref _push(
+    element: USize,
     named: USize,
     kind: BindingKind,
     from: USize,
@@ -560,10 +563,12 @@ class _Emitter
     try
       let at = _offsets(named)?
       let width = _tree.width(named)?
+      let whole = _offsets(element)?
       _out.push(
         Binding(
           recover val _tree.text(named)? end,
           kind,
+          Span.from_bytes(_index, whole, whole + _tree.width(element)?),
           Span.from_bytes(_index, at, at + width),
           Span.from_bytes(_index, from, to),
           from,

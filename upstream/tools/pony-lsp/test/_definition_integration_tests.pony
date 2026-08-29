@@ -23,6 +23,7 @@ primitive \nodoc\ _DefinitionIntegrationTests is TestList
     // Its own server: this one edits a buffer, and the others share a
     // compile that assumes the files are what is on disk.
     test(_DefinitionStaleBufferTest.create(_LspTestServer(workspace_dir)))
+    test(_DefinitionEditedBufferTest.create(_LspTestServer(workspace_dir)))
 
 class \nodoc\ iso _DefinitionClassIntegrationTest is UnitTest
   let _server: _LspTestServer
@@ -156,11 +157,13 @@ class \nodoc\ iso _DefinitionGenericsIntegrationTest is UnitTest
       h,
       _server,
       "definition/_generics.pony",
-      [ // `T` in return type → type parameter declaration in method header
+      [ // `T` in return type → type parameter declaration in method header.
+        // One character: the declaration is the name and nothing else.
+        // libponyc's span ran on to `T](x`.
         _DefinitionChecker(
           19,
           22,
-          [("_generics.pony", (19, 12), (19, 16))])])
+          [("_generics.pony", (19, 12), (19, 13))])])
 
 class \nodoc\ iso _DefinitionTupleIntegrationTest is UnitTest
   let _server: _LspTestServer
@@ -300,7 +303,8 @@ class val _DefinitionChecker
 
 class \nodoc\ iso _DefinitionStaleBufferTest is UnitTest
   """
-  Go to definition refuses to answer about a buffer with unsaved edits.
+  Go to definition refuses what only the compile can answer, once the
+  buffer has unsaved edits.
 
   Everything the compile produced describes the file on disk. Once the
   buffer differs, a location drawn from it names a line that may have
@@ -308,8 +312,8 @@ class \nodoc\ iso _DefinitionStaleBufferTest is UnitTest
   the cursor somewhere the user did not ask for, with nothing to say it
   is wrong.
 
-  The same edit is what makes the outline and the syntax errors update,
-  so this is a refusal to guess rather than an inability to see.
+  Only what the compile answers. A name the buffer itself binds is read
+  from the buffer and needs no compile, which is the next test.
   """
   let _server: _LspTestServer
 
@@ -328,3 +332,34 @@ class \nodoc\ iso _DefinitionStaleBufferTest is UnitTest
       // asserts. With an edit outstanding, no location at all.
       [_DefinitionChecker(7, 4, [])]
       where edit = "class _Class\n  let _replaced: U32 = 0\n")
+
+class \nodoc\ iso _DefinitionEditedBufferTest is UnitTest
+  """
+  Go to definition answers about the buffer, for a name the buffer binds.
+
+  The edit below replaces the file, so nothing the compile produced
+  describes it. A local is bound by the text on the screen, so this is
+  answered from the text on the screen: no compile, no wait, and the answer
+  is about the line the user is looking at rather than the one that was
+  there when the file was last saved.
+  """
+  let _server: _LspTestServer
+
+  new iso create(server: _LspTestServer) =>
+    _server = server
+
+  fun name(): String => "definition/integration/edited_buffer"
+
+  fun apply(h: TestHelper) =>
+    _RunLspChecks(
+      h,
+      _server,
+      "definition/_class.pony",
+      // The use of `moved` on line 3, to its declaration on line 2.
+      // Neither line exists in the file on disk.
+      [_DefinitionChecker(3, 4, [("_class.pony", (2, 4), (2, 18))])]
+      where edit =
+        "class _Class\n" +
+        "  fun f(): U32 =>\n" +
+        "    var moved: U32 = 1\n" +
+        "    moved\n")

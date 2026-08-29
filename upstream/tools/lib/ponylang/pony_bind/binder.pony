@@ -45,6 +45,16 @@ class Binder is QueryRunner
     _text(file) = text
     _engine.set_input(_source_query(file))
 
+  fun knows(file: String val): Bool =>
+    """
+    Whether a file has been given text.
+
+    What tells a caller reading from a disk that it need not: a buffer the
+    client sent is what the user is looking at, and reading over it would
+    answer about the saved file instead.
+    """
+    _text.contains(file)
+
   fun ref set_files(package: String val, files: Array[String val] val) =>
     """
     Which files make up a package.
@@ -189,7 +199,7 @@ class Binder is QueryRunner
 
   fun ref declared_at(item: BoundItem): (Span | None) =>
     """
-    Where a declaration is written.
+    Where a declaration is written -- the whole of it, not just its name.
 
     The index holds no spans, so this asks the file that declares it. That
     is the whole trade: a position costs one lookup here, and costs nothing
@@ -200,7 +210,7 @@ class Binder is QueryRunner
       let wanted = item.name()
       for declared in known.declarations.values() do
         if (declared.name == wanted) and (declared.kind is item.kind) then
-          return declared.name_span
+          return declared.span
         end
       end
       None

@@ -6,6 +6,7 @@ use "itertools"
 
 use "pony_compiler"
 use analysis = "pony_analysis"
+use bind = "pony_bind"
 use "json"
 
 actor WorkspaceManager
@@ -27,6 +28,17 @@ actor WorkspaceManager
   let _request_sender: RequestSender
   let _compiler: LspCompiler
   let _packages: Map[String, PackageState]
+  embed _binder: bind.Binder = _binder.create()
+    """
+    What the workspace declares and what its names refer to, from syntax
+    alone.
+
+    Answers about the buffer rather than about the last compile, so what it
+    can answer needs no compile and survives a file that does not compile.
+    Where it resolves nothing the compiler is still asked, which is what
+    keeps the answers that need types.
+    """
+  embed _binder_packages: Set[String] = _binder_packages.create()
   let _global_errors: Array[Diagnostic val]
   var _compile_run: USize = 0
   var _compiling: Bool = false
@@ -390,6 +402,8 @@ actor WorkspaceManager
       if doc_state.set_text(
         text, _client_version(notification) where from_disk = true)
       then
+        _binder.set_source(document_path, text)
+        _sync_binder_package(package)
         _publish_syntax_diagnostics(document_path, doc_state)
       end
     end
@@ -425,6 +439,7 @@ actor WorkspaceManager
       match \exhaustive\ _full_text(notification)
       | let text: String val =>
         if doc_state.set_text(text, _client_version(notification)) then
+          _binder.set_source(document_path, text)
           _publish_syntax_diagnostics(document_path, doc_state)
         end
       | None =>
@@ -535,28 +550,55 @@ actor WorkspaceManager
       false
     end
 
-  fun _document_facts(document_path: String)
+  fun ref _document_facts(document_path: String)
     : (analysis.DocumentFacts | None)
   =>
     """
-    What syntax says about a document's buffer, or `None` if the client has
-    not told us about one.
+    What syntax says about a document, from the buffer when the client has
+    told us about one and from the disk otherwise.
     """
+    _binder.facts(document_path)
+
+  fun ref _sync_binder_package(package: FilePath) =>
+    """
+    Tell the binder which files a package has, and what is in the ones the
+    client has not opened.
+
+    Once per package. A file added or removed while the server runs is not
+    picked up until the package is opened again, which is the same
+    granularity a compile has.
+    """
+    if _binder_packages.contains(package.path) then
+      return
+    end
+    _binder_packages.set(package.path)
+
+    let files = recover iso Array[String val] end
     try
-      let package: FilePath = this._find_workspace_package(document_path)?
-      match \exhaustive\ this._get_package(package)
-      | let pkg_state: PackageState box =>
-        match \exhaustive\ pkg_state.get_document(document_path)
-        | let doc: DocumentState box => doc.facts()
-        | None => None
+      let directory = Directory(package)?
+      for entry in (directory.entries()?).values() do
+        if not entry.at(".pony", (entry.size().isize() - 5)) then
+          continue
         end
-      | None => None
+        let path = Path.join(package.path, entry)
+        files.push(path)
+        // A buffer the client has sent is what the user is looking at; only
+        // read the disk for a file it has said nothing about.
+        if not _binder.knows(path) then
+          try
+            let file = OpenFile(FilePath(_file_auth, path)) as File
+            _binder.set_source(
+              path,
+              recover val String.from_array(file.read(file.size())) end)
+          end
+        end
       end
     else
-      None
+      _channel.log("could not read package directory " + package.path)
     end
+    _binder.set_files(package.path, consume files)
 
-  fun _publish_syntax_diagnostics(
+  fun ref _publish_syntax_diagnostics(
     document_path: String,
     doc_state: DocumentState box)
   =>
@@ -575,7 +617,7 @@ actor WorkspaceManager
     if not this._client.supports_publish_diagnostics() then
       return
     end
-    match doc_state.facts()
+    match _document_facts(document_path)
     | let facts: analysis.DocumentFacts =>
       var diagnostics = JSONArray
       for d in facts.diagnostics.values() do
@@ -1088,6 +1130,25 @@ actor WorkspaceManager
       | None => return
       end
     let document_path = Uris.to_path(document_uri)
+
+    // What the buffer can answer, it answers. A local, a parameter, a
+    // field, a type parameter or a type the workspace declares needs no
+    // compile, so none of them is refused while typing and none of them
+    // waits for one.
+    match _binder.resolve_at(document_path, line.usize(), column.usize())
+    | let bound: analysis.Binding =>
+      _send_location(request, document_path, bound.span)
+      return
+    | let item: bind.BoundItem =>
+      match _binder.declared_at(item)
+      | let declared: analysis.Span =>
+        _send_location(request, item.file, declared)
+        return
+      end
+    end
+
+    // Anything else -- a method call, a field access -- needs the
+    // receiver's type, and that needs the compiler.
     if _refuse_if_stale(document_path, request) then return end
     match \exhaustive\ _find_node_and_module(document_path, line, column)
     | (let ast: AST box, _) =>
@@ -1108,6 +1169,20 @@ actor WorkspaceManager
     end
     // send a null-response in every failure case
     this._channel.send(ResponseMessage.create(request.id, None))
+
+  fun _send_location(
+    request: RequestMessage val,
+    file: String val,
+    at: analysis.Span)
+  =>
+    """
+    One place, as the protocol's answer to a go-to request.
+    """
+    this._channel.send(
+      ResponseMessage(
+        request.id,
+        JSONArray.push(
+          LspLocation(Uris.from_path(file), FactsRange(at)).to_json())))
 
   be type_definition(document_uri: String, request: RequestMessage val) =>
     """
@@ -1164,7 +1239,7 @@ actor WorkspaceManager
           // is syntax, so it needs no compile and it survives a file that
           // will not compile.
           let symbols =
-            match doc.facts()
+            match _document_facts(document_path)
             | let facts: analysis.DocumentFacts => FactsSymbols(facts)
             else
               doc.document_symbols()
@@ -1194,45 +1269,31 @@ actor WorkspaceManager
   =>
     """
     Handle workspace/symbol request.
-    Collects symbols matching the query across all packages
-    in this workspace.
+
+    Answered from what the workspace's files declare rather than from the
+    last compile, so a name appears as soon as it is typed, appears in a
+    file that does not compile, and appears from a file the client has
+    never opened.
     """
     this._channel.log("Handling workspace/symbol: '" + query + "'")
-    let query_lower: String val = query.lower()
     var results = JSONArray
-    for pkg_state in this._packages.values() do
-      for doc_state in pkg_state.document_states() do
-        let file_uri = Uris.from_path(doc_state.path)
-        let top_symbols = doc_state.document_symbols()
-        for symbol in top_symbols.values() do
-          if _symbol_matches(symbol.name, query_lower) then
-            results =
-              results.push(
-                JSONObject
-                  .update("name", symbol.name)
-                  .update("kind", symbol.kind)
-                  .update(
-                    "location",
-                    JSONObject
-                      .update("uri", file_uri)
-                      .update("range", symbol.range.to_json())))
-          end
-          for child in symbol.children.values() do
-            if _symbol_matches(child.name, query_lower) then
-              results =
-                results.push(
-                  JSONObject
-                    .update("name", child.name)
-                    .update("kind", child.kind)
-                    .update("containerName", symbol.name)
-                    .update(
-                      "location",
-                      JSONObject
-                        .update("uri", file_uri)
-                        .update("range", child.range.to_json())))
-            end
-          end
+    for item in _binder.matching(query).values() do
+      match _binder.declared_at(item)
+      | let declared: analysis.Span =>
+        var entry =
+          JSONObject
+            .update("name", item.name())
+            .update("kind", FactsSymbolKind(item.kind))
+            .update(
+              "location",
+              JSONObject
+                .update("uri", Uris.from_path(item.file))
+                .update("range", FactsRange(declared).to_json()))
+        match item.path
+        | let member: bind.MemberPath =>
+          entry = entry.update("containerName", member.owner.entity)
         end
+        results = results.push(entry)
       end
     end
     aggregator.add_results(results)
@@ -1387,7 +1448,7 @@ actor WorkspaceManager
       | let pkg_state: PackageState =>
         match \exhaustive\ pkg_state.get_document(document_path)
         | let doc: DocumentState =>
-          match doc.facts()
+          match _document_facts(document_path)
           | let facts: analysis.DocumentFacts =>
             var from_buffer = JSONArray
             for range in FactsFolding(facts).values() do

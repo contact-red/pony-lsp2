@@ -38,7 +38,15 @@ class val Binding
   """
   let name: String val
   let kind: BindingKind
+  let span: Span
+    """
+    The whole declaration: `let x: U32 = 0`, or `v: U32` for a parameter.
+    What going to it selects.
+    """
   let name_span: Span
+    """
+    Only the identifier. What an outline highlights.
+    """
   let scope: Span
   let _from: USize
   let _to: USize
@@ -48,6 +56,7 @@ class val Binding
   new val create(
     name': String val,
     kind': BindingKind,
+    span': Span,
     name_span': Span,
     scope': Span,
     from': USize,
@@ -57,6 +66,7 @@ class val Binding
   =>
     name = name'
     kind = kind'
+    span = span'
     name_span = name_span'
     scope = scope'
     _from = from'

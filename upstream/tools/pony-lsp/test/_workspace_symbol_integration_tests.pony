@@ -217,14 +217,19 @@ class \nodoc\ iso _WsSymRangeTest is UnitTest
       h,
       _server,
       "workspace_symbol/_ws_sym_host.pony",
+      // A field's range is the whole declaration, initialiser and all,
+      // which is what the protocol asks for: the range enclosing the
+      // symbol, everything but surrounding whitespace. libponyc's spans
+      // stopped at the type for `var` and `let` and after the `=` for
+      // `embed`, and answering from the buffer makes the three agree.
       [ _WsSymRangeChecker(
           "_WsSymHost", "_WsSymHost", None, (5, 0, 18, 8))
         _WsSymRangeChecker(
-          "_count", "_count", "_WsSymHost", (6, 2, 6, 17))
+          "_count", "_count", "_WsSymHost", (6, 2, 6, 21))
         _WsSymRangeChecker(
-          "_name", "_name", "_WsSymHost", (7, 2, 7, 19))
+          "_name", "_name", "_WsSymHost", (7, 2, 7, 24))
         _WsSymRangeChecker(
-          "_inner", "_inner", "_WsSymHost", (8, 2, 8, 27))
+          "_inner", "_inner", "_WsSymHost", (8, 2, 8, 37))
         _WsSymRangeChecker(
           "create", "create", "_WsSymHost", (10, 2, 11, 14))
         _WsSymRangeChecker(
