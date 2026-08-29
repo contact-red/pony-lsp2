@@ -15,6 +15,7 @@ class val DocumentFacts
   let source: String val
   let declarations: Array[Declaration] val
   let uses: Array[UseDecl] val
+  let bindings: Array[Binding] val
   let foldable: Array[FoldingRegion] val
   let diagnostics: Array[Diagnostic] val
   let _tree: SyntaxTree val
@@ -43,6 +44,7 @@ class val DocumentFacts
 
     declarations = _Declarations(_tree, _index, _offsets, source')
     uses = _Uses(_tree, _index, _offsets, source')
+    bindings = _Bindings(_tree, _index, _offsets, source')
     foldable = _Foldable(_tree, _index, _offsets)
     diagnostics =
       recover val
@@ -55,6 +57,55 @@ class val DocumentFacts
         end
         out
       end
+
+  fun identifier_at(line: USize, character: USize): (Identifier | None) =>
+    """
+    The identifier written at a position, if one is.
+
+    A cursor sitting just past the end of a name counts as being on it,
+    because that is where a cursor ends up after typing one and it is where
+    a double-click leaves it.
+    """
+    let byte = _index.offset(line, character)
+    match _IdentifierAt(_tree, _index, _offsets, byte)
+    | let found: Identifier => found
+    else
+      if byte > 0 then
+        _IdentifierAt(_tree, _index, _offsets, byte - 1)
+      else
+        None
+      end
+    end
+
+  fun binding_at(line: USize, character: USize): (Binding | None) =>
+    """
+    What the name at a position is bound to, within this document.
+
+    `None` when the name is bound somewhere else -- another file, or
+    another package -- which is the caller's cue to go and look. Syntax
+    alone cannot tell those apart from a name that is bound nowhere.
+
+    Where several bindings of one name are in scope, the innermost wins,
+    which is the one visible over the least source.
+    """
+    match identifier_at(line, character)
+    | let used: Identifier =>
+      var best: (Binding | None) = None
+      for candidate in bindings.values() do
+        if (candidate.name == used.name) and candidate.covers(used.offset)
+        then
+          match best
+          | let closest: Binding =>
+            if candidate.extent() < closest.extent() then
+              best = candidate
+            end
+          else
+            best = candidate
+          end
+        end
+      end
+      best
+    end
 
   fun span_of(element: USize): Span =>
     """

@@ -346,3 +346,289 @@ primitive _Scheme
     else
       None
     end
+
+primitive _OpensScope
+  """
+  Whether a node bounds the visibility of the names declared inside it.
+
+  ponyc marks these with `SCOPE()` in its grammar, but the list there does
+  not transfer: `for`, `with`, `object` and lambdas get their scopes from
+  the desugaring, and this tree is not desugared. So the ones the
+  desugaring would have produced are named here instead.
+
+  `NdUseFFI` is on ponyc's list and is easy to miss, because an FFI
+  declaration does not look like a scope. It has to be one: the standard
+  library declares thirty `use @pony_asio_event_*` in one file, each with a
+  parameter named `event`, and without a scope each one they would all be
+  visible over the whole file and collide.
+  """
+  fun apply(kind: SyntaxKind): Bool =>
+    match kind
+    | NdModule | NdClassDef | NdObject | NdMethod
+    | NdSeq | NdFor | NdWith | NdCase
+    | NdLambda | NdBareLambda
+    | NdUseFFI => true
+    else
+      false
+    end
+
+primitive _BodyStart
+  """
+  Where the names a scope binds become visible.
+
+  Not the same as where the scope starts. A method's type parameters are
+  visible in its own signature, but its parameters are not visible until the
+  body -- `fun f[A](x: A)` reads `A` from the signature, while a `for` name
+  must not capture the iterator expression that produces it, as in
+  `for x in x.next()`.
+
+  So this is where the body begins: after `=>` for a method or a lambda,
+  after `do` for a `for` or a `with`. For everything else it is the start of
+  the scope itself.
+  """
+  fun apply(tree: SyntaxTree val, offsets: Array[USize] val, element: USize)
+    : (USize | None)
+  =>
+    let opener =
+      match try tree.kind(element)? else return None end
+      | NdMethod | NdLambda | NdBareLambda => TkDblarrow
+      | NdFor | NdWith => TkDo
+      else
+        return None
+      end
+
+    try
+      for child in tree.children(element)? do
+        if tree.kind(child)? is opener then
+          return offsets(child)? + tree.width(child)?
+        end
+      end
+    end
+    None
+
+primitive _BoundName
+  """
+  The name a binding node binds, which is its first identifier.
+
+  Every one of them is shaped that way -- `let x`, `x: U32`, `A: Any val`,
+  `x = expr` -- so one rule finds all of them.
+  """
+  fun apply(tree: SyntaxTree val, element: USize): (USize | None) =>
+    try
+      for child in tree.children(element)? do
+        if tree.kind(child)? is TkId then
+          return child
+        end
+      end
+    end
+    None
+
+primitive _Bindings
+  """
+  Every name bound inside one document, with the source it is visible over.
+
+  One walk, carrying a stack of open scopes. A binding belongs to the
+  innermost scope enclosing it, and no binding node is itself a scope, so
+  the top of the stack is always the right one.
+  """
+  fun apply(
+    tree: SyntaxTree val,
+    index: LineIndex,
+    offsets: Array[USize] val,
+    source: String val)
+    : Array[Binding] val
+  =>
+    recover val
+      let out = Array[Binding]
+      let emit = _Emitter(tree, index, offsets, out)
+
+      // depth, where the scope starts, where its bindings become visible,
+      // and where it ends.
+      let scopes = Array[(USize, USize, USize, USize)]
+
+      for (element, depth, at, kind, width) in tree.walk() do
+        while
+          try scopes(scopes.size() - 1)?._1 >= depth else false end
+        do
+          try scopes.pop()? end
+        end
+
+        if _OpensScope(kind) then
+          let body =
+            match _BodyStart(tree, offsets, element)
+            | let starts: USize => starts
+            else
+              at
+            end
+          scopes.push((depth, at, body, at + width))
+        end
+
+        (let scope_from, let body_from, let scope_to) =
+          try
+            (let _, let s, let b, let e) = scopes(scopes.size() - 1)?
+            (s, b, e)
+          else
+            continue
+          end
+
+        match kind
+        | NdLocal =>
+          // Visible from where it is written. Pony rejects a use before
+          // the declaration, so starting the scope earlier would resolve a
+          // name the compiler will not.
+          emit.one(element, BindLocal, at, scope_to)
+        | NdParam | NdLambdaParam | NdLambdaCapture =>
+          emit.one(element, BindParam, body_from, scope_to)
+        | NdField =>
+          emit.one(element, BindField, scope_from, scope_to)
+        | NdTypeParam =>
+          emit.one(element, BindTypeParam, scope_from, scope_to)
+        | NdIdSeq =>
+          emit.all(element, BindLocal, body_from, scope_to)
+        end
+      end
+
+      out
+    end
+
+class _Emitter
+  """
+  Collects bindings while the walk runs.
+
+  A class rather than a pair of functions because every call would
+  otherwise carry the same four things through: the tree, the index, the
+  offsets and the list being built.
+  """
+  let _tree: SyntaxTree val
+  let _index: LineIndex
+  let _offsets: Array[USize] val
+  let _out: Array[Binding]
+
+  new create(
+    tree: SyntaxTree val,
+    index: LineIndex,
+    offsets: Array[USize] val,
+    out: Array[Binding])
+  =>
+    _tree = tree
+    _index = index
+    _offsets = offsets
+    _out = out
+
+  fun ref one(
+    element: USize,
+    kind: BindingKind,
+    from: USize,
+    to: USize)
+  =>
+    """
+    The name a binding node binds.
+    """
+    match _BoundName(_tree, element)
+    | let named: USize => _push(named, kind, from, to)
+    end
+
+  fun ref all(
+    element: USize,
+    kind: BindingKind,
+    from: USize,
+    to: USize)
+  =>
+    """
+    Every identifier under a node, each bound in its own right.
+
+    A `for` or a `with` binds one name or a tuple of them, and a tuple
+    nests.
+    """
+    try
+      let span = _tree.subtree_size(element)?
+      var i = element
+      while i < (element + span) do
+        if _tree.kind(i)? is TkId then
+          _push(i, kind, from, to)
+        end
+        i = i + 1
+      end
+    end
+
+  fun ref _push(
+    named: USize,
+    kind: BindingKind,
+    from: USize,
+    to: USize)
+  =>
+    try
+      let at = _offsets(named)?
+      let width = _tree.width(named)?
+      _out.push(
+        Binding(
+          recover val _tree.text(named)? end,
+          kind,
+          Span.from_bytes(_index, at, at + width),
+          Span.from_bytes(_index, from, to),
+          from,
+          to,
+          at,
+          at + width))
+    end
+
+primitive _IdentifierAt
+  """
+  The identifier covering a byte offset, if the innermost thing there is
+  one.
+  """
+  fun apply(
+    tree: SyntaxTree val,
+    index: LineIndex,
+    offsets: Array[USize] val,
+    byte: USize)
+    : (Identifier | None)
+  =>
+    let path = tree.path_to(byte)
+    try
+      let leaf = path(path.size() - 1)?
+      if not (tree.kind(leaf)? is TkId) then
+        return None
+      end
+      let at = offsets(leaf)?
+      let width = tree.width(leaf)?
+      Identifier(
+        recover val tree.text(leaf)? end,
+        Span.from_bytes(index, at, at + width),
+        at,
+        _Qualifier(tree, path, leaf))
+    else
+      None
+    end
+
+primitive _Qualifier
+  """
+  The package alias a type name is written behind, as in `col.List`.
+
+  Only inside a type. A dot anywhere else is a field access or a method
+  call on an expression, and its left side is a value rather than a
+  package.
+  """
+  fun apply(tree: SyntaxTree val, path: Array[USize] val, leaf: USize)
+    : String val
+  =>
+    let parent = try path(path.size() - 2)? else return "" end
+    if not (try tree.kind(parent)? is NdNominal else false end) then
+      return ""
+    end
+    try
+      var previous: (USize | None) = None
+      for child in tree.children(parent)? do
+        if child == leaf then
+          match previous
+          | let before: USize =>
+            return recover val tree.text(before)? end
+          end
+          return ""
+        end
+        if tree.kind(child)? is TkId then
+          previous = child
+        end
+      end
+    end
+    ""

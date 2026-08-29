@@ -49,6 +49,8 @@ actor \nodoc\ Main
     var wrong_file: USize = 0
     var uses: USize = 0
     var unknown_package: USize = 0
+    var bindings: USize = 0
+    var not_itself: USize = 0
     var shown: USize = 0
 
     for (package, files) in by_package.pairs() do
@@ -82,6 +84,39 @@ actor \nodoc\ Main
           end
         end
 
+        // Every binding, asked about at its own name, must come back as
+        // itself. Ground truth without a compiler: the document says where
+        // the name is written, and resolution has to agree.
+        match binder.facts(file)
+        | let known: DocumentFacts =>
+          for bound in known.bindings.values() do
+            bindings = bindings + 1
+            match binder.resolve_at(
+              file, bound.name_span.start_line, bound.name_span.start_character)
+            | let same: Binding =>
+              if same.name_span.start_character
+                != bound.name_span.start_character
+              then
+                not_itself = not_itself + 1
+                if shown < 10 then
+                  shown = shown + 1
+                  env.out.print(
+                    "NOTITSELF " + bound.name + " at " +
+                    bound.name_span.string() + " in " + file)
+                end
+              end
+            else
+              not_itself = not_itself + 1
+              if shown < 10 then
+                shown = shown + 1
+                env.out.print(
+                  "UNBOUND " + bound.name + " at " +
+                  bound.name_span.string() + " in " + file)
+              end
+            end
+          end
+        end
+
         for used in binder.imports(file).values() do
           uses = uses + 1
           let named = binder.package_for(used.package, file)
@@ -107,6 +142,9 @@ actor \nodoc\ Main
     env.out.print(
       "uses " + uses.string() + ", naming no known package " +
       unknown_package.string())
+    env.out.print(
+      "bindings " + bindings.string() +
+      ", not resolving to themselves " + not_itself.string())
 
 primitive \nodoc\ _Dirname
   fun apply(path: String val): String val =>

@@ -22,3 +22,4 @@ actor \nodoc\ Main is TestList
     _AnalysisTests.tests(test)
     _QueryTests.tests(test)
     _BindTests.tests(test)
+    _ScopeTests.tests(test)

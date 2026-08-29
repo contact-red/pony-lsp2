@@ -160,6 +160,52 @@ class Binder is QueryRunner
     end
     None
 
+  fun ref resolve_at(file: String val, line: USize, character: USize)
+    : (Definition | None)
+  =>
+    """
+    What the name at a position refers to.
+
+    A binding inside the document wins, because a local shadows anything a
+    package declares. Only when the document binds nothing under that name
+    is the workspace asked.
+    """
+    let known =
+      match facts(file)
+      | let found: DocumentFacts => found
+      else
+        return None
+      end
+
+    match known.binding_at(line, character)
+    | let bound: Binding => return bound
+    end
+
+    match known.identifier_at(line, character)
+    | let used: Identifier => resolve(file, used.written())
+    else
+      None
+    end
+
+  fun ref declared_at(item: BoundItem): (Span | None) =>
+    """
+    Where a declaration is written.
+
+    The index holds no spans, so this asks the file that declares it. That
+    is the whole trade: a position costs one lookup here, and costs nothing
+    when a body is edited.
+    """
+    match facts(item.file)
+    | let known: DocumentFacts =>
+      let wanted = item.name()
+      for declared in known.declarations.values() do
+        if (declared.name == wanted) and (declared.kind is item.kind) then
+          return declared.name_span
+        end
+      end
+      None
+    end
+
   fun ref matching(pattern: String val): Array[BoundItem] val =>
     """
     Every declaration in the workspace whose name contains `pattern`,
