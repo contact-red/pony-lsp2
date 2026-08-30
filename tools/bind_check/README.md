@@ -13,16 +13,20 @@ the point of a round trip.
 
 ## Result
 
-    files 255, packages 37, revision 293
-    entities 1555, unresolved 0, wrong file 0
-    uses 182, naming no known package 0
-    bindings 12611, not resolving to themselves 0
+Over ponyc's standard library, every entity resolves from its own file back
+to itself, every `use` names a package the workspace has, and every local,
+parameter, field and type parameter comes back as itself. Nothing is
+unresolved, nothing resolves to the wrong file, and no `use` names a package
+that is not there.
 
-Over the whole ponyc tree rather than the standard library alone -- 986
-files, 383 packages -- the entity round trip also holds for all 3928
-entities. The `use` check does not apply there, because those files resolve
-their imports against the standard library's root rather than against the
-tree they live in, and the tool is given one root.
+The totals are not recorded here, because they move whenever the standard
+library does. What the check asserts is that none of the three round trips
+fails, and that holds whatever the totals happen to be.
+
+Over the whole ponyc tree rather than the standard library alone the entity
+round trip also holds. The `use` check does not apply there, because those
+files resolve their imports against the standard library's root rather than
+against the tree they live in, and the tool is given one root.
 
 ## What it found
 
@@ -43,6 +47,6 @@ standard library:
   scope each they were all visible over the whole file. That was 276
   bindings resolving to the wrong one.
 
-The revision count is the third number worth reading: 293 for 255 files is
-one per file, one per package, and the one the engine starts at. Nothing
-else advanced it.
+The revision count is the third thing worth reading: one per file, one per
+package, and the one the engine starts at. Nothing else advanced it, which
+is the engine's backdating doing its job.
