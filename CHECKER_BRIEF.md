@@ -35,32 +35,31 @@ rebuild what they cover.
 **`pony_syntax`** (4,801 lines, of which `token_kind.pony`'s 1,656 are
 generated from ponyc's lexer tables). A lossless, error-tolerant lexer and
 parser. `make corpus` lexes every Pony file in the ponyc tree and compares
-the token sequence against ponyc's own: 986 of 986 agree. All 986 reprint
-byte for byte from their tree under a single root. One produces a
+the token sequence against ponyc's own: every one agrees. Every one
+reprints byte for byte from its tree under a single root. One produces a
 diagnostic, and its source is deliberately not valid Pony. `make mutants`
-truncates and corrupts those files 12,818 ways; all 12,818 parse to a single
-root, reprint byte for byte, and terminate.
+truncates and corrupts those files thousands of ways; every mutant parses to
+a single root, reprints byte for byte, and terminates.
 
 **`pony_analysis`** (1,208 lines). Per-document facts projected from a tree:
-declarations, `use`s, bindings, foldable regions, diagnostics. 19,144
-declarations over the tree with no gap.
+declarations, `use`s, bindings, foldable regions, diagnostics. Every
+declaration in the tree projects with a name and no gap.
 
 **`pony_bind`** (829 lines). Name resolution across a workspace from syntax
 alone, with declarations addressed by name path and carrying no span, so an
 edit to a body leaves the package index unchanged. `make bind` resolves
-every entity in the standard library from its own file back to itself
-(1,555, none unresolved), every `use` to a package that exists (182, none
-unknown), and every local, parameter, field and type parameter to itself
-(12,611, none wrong).
+every entity in the standard library from its own file back to itself, every
+`use` to a package that exists, and every local, parameter, field and type
+parameter to itself. None unresolved, none resolving to the wrong file, none
+naming a package that is not there.
 
 **`pony_query`** (282 lines). Inputs with revisions, memoized queries,
 dependency tracking, backdating. It `use`s no package at all. The backdating
-works and there is a number for it: checking the standard library advances
-the engine to revision 293 for 255 files in 37 packages, which is one per
-file, one per package, and the one the engine starts at. Nothing re-ran that
-did not have to.
+works, and the revision count is how you see it: checking the standard
+library advances the engine one revision per file, one per package, and the
+one it starts at. Nothing re-ran that did not have to.
 
-`tools/agreement` and `tools/bind_check` are how those numbers are produced.
+`tools/agreement` and `tools/bind_check` are what those claims come from.
 Extend them. They are the reason the parser can be trusted, and a check you
 add there outlives any unit test.
 

@@ -30,10 +30,10 @@ and for `libponyc-standalone`:
 
 ## Where it stands
 
-The parser agrees with ponyc's lexer on all 986 Pony files in the ponyc
-tree and reprints each of them byte for byte from its tree. One produces a
+The parser agrees with ponyc's lexer on every Pony file in the ponyc tree
+and reprints each of them byte for byte from its tree. One produces a
 diagnostic, and its source is deliberately not valid Pony. The analysis
-layer projects 19144 declarations from them without a gap.
+layer projects every declaration in them without a gap.
 
 All four syntax features -- outline, folding, selection and syntax
 diagnostics -- answer from the buffer, so they work on an unsaved file and on
