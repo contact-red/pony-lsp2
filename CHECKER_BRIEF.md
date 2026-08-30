@@ -111,11 +111,18 @@ The first four rows have counterparts here, with one gap: the package
 loading inside row three is not built, and the next section says so. The six
 rows after them — 7,134 lines, 55% of ponyq — have nothing at all.
 
-Read that number with what it bought. Those 7,134 lines reach 49.5%
-agreement with ponyc over ponyc's own unit tests: 637 of 1288 cases, with
-175 more skipped as not a plain verdict on a single source. The
-disagreements run 552 "ponyc rejects, ponyq accepts" against 99 "ponyq got a
-rule wrong", so most of the gap is checks never written. The suites that
+Read that number with what it bought, and against what it started from.
+Those 7,134 lines reach 49.5% agreement with ponyc over ponyc's own unit
+tests: 637 of 1288 cases, with 175 more skipped as not a plain verdict on a
+single source. The disagreements run 552 "ponyc rejects, ponyq accepts"
+against 99 "ponyq got a rule wrong", so most of the gap is checks never
+written.
+
+But agreement counts the cases ponyc accepts, and a checker that finds
+nothing wrong agrees with every one of them. Measured on this repository's
+port of the harness, accepting every program scores 46.1%. So 49.5% is
+roughly three points above doing nothing at all -- assuming ponyq's corpus
+had a similar accept rate, which is unverified. The suites that
 test the type system directly do well — subtyping 90.2%, match types 100%,
 recursive aliases 97.1%. The ones that test everything else do not: `verify`
 32.9% over 280 cases, `badpony` 38.3% over 180.
@@ -128,11 +135,17 @@ a syntax-directed rule does.
 
 ## The measure of done
 
-Agreement with ponyc over a corpus, reported as a percentage, at every
-stage. ponyq's harness ports: `scripts/extract_corpus.py` pulls the inline
-sources out of `test/libponyc/*.cc` and `scripts/corpus_report.py` compares
-verdicts, and both are language-agnostic. Only the step between them is
-ponyq's binary, and that is the CLI contract to match.
+**How far agreement with ponyc sits above the floor**, at every stage. Not
+agreement itself: a checker that rejects nothing scores 46.1% on this corpus,
+so a bare percentage mostly reports how many programs ponyc accepts. What a
+stage is worth is the rejections it adds.
+
+ponyq's harness is ported, in `tools/corpus`. `extract_corpus.py` pulls the
+inline sources out of `test/libponyc/*.cc` and `corpus_report.py` compares
+verdicts; both are ponyq's, unmodified, because neither mentions Rust or
+Pony. The step between them is the binary this brief asks for, and that is
+the CLI contract to match. `make corpus-cases` and `make pass-reach` run
+what exists.
 
 Two more that already exist here and should keep passing: the standard
 library checks clean, and the whole ponyc tree parses.
