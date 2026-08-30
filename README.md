@@ -1,7 +1,8 @@
 # A query-based Pony front end for pony-lsp
 
-`DESIGN.md` is the design this implements and the reasoning behind it. It
-answers the five questions in `QUERY_BRIEF.md`.
+`CHECKER_BRIEF.md` is the current brief, and it supersedes
+`QUERY_BRIEF.md`. `DESIGN.md` answers the older brief's five questions;
+`CHECKER_BRIEF.md` says which half of that design is withdrawn.
 
 ## What is here
 

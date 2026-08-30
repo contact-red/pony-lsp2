@@ -1,5 +1,12 @@
 # Brief: a query-based Pony front end, in Pony, for pony-lsp
 
+> **Superseded by `CHECKER_BRIEF.md`.** This brief asked for a front end that
+> made pony-lsp better. The target is now a batch checker measured against
+> ponyc, for the reasons that brief opens with. Kept because `DESIGN.md`
+> answers the five questions below and the measurements behind those answers
+> still hold; `CHECKER_BRIEF.md` says which parts of that design are
+> withdrawn.
+
 I want to replace pony-lsp's whole-program compile with an incremental,
 query-based front end written as a Pony package. Before any code, I want the
 design settled and written down.

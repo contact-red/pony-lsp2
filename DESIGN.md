@@ -5,8 +5,22 @@ ensemble in `pony-software-design` — three design personas, five evaluation
 personas, two synthesis passes — with every load-bearing claim about libponyc
 and pony-lsp verified against the source rather than taken from a persona.
 
-Nothing here is implemented. Where a claim rests on something not yet measured,
-it says so.
+> **Partly withdrawn. `CHECKER_BRIEF.md` is the current brief.** This design
+> answers `QUERY_BRIEF.md`, whose target was a front end that improved
+> pony-lsp. The target is now a batch checker measured against ponyc, and the
+> parts of this document that exist so that a front end can share a document
+> with libponyc go with it: the depth ladder of `Parsed`, `Bound` and `Typed`
+> as states a document is in, `DocumentAnalysis` and `Reached`, the
+> eighteen-row feature table, and the per-feature staleness policies. Treat
+> those as withdrawn rather than as unimplemented.
+>
+> What still holds: the tree's shape and the reasons for it, every
+> measurement, the account of why libponyc's parser cannot serve an editor,
+> and the bugs found while designing.
+
+Written before any of it was built. `pony_syntax`, `pony_analysis`,
+`pony_bind` and `pony_query` now exist; nothing at the type layer does. Where
+a claim rests on something not yet measured, it says so.
 
 ## Summary
 
