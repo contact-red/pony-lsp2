@@ -11,7 +11,7 @@ BRIDGE     := $(LIBS)/pony_compiler
 PATHS      := --path $(BRIDGE) --path $(LIBS) --path $(PONYC_LIB)
 
 .PHONY: all test syntax-test lsp lsp-test tools corpus mutants bind bench \
-  types corpus-cases pass-reach clean FORCE
+  types corpus-cases pass-reach memo-pays clean FORCE
 
 all: test
 
@@ -110,6 +110,12 @@ corpus-cases:
 
 pass-reach: corpus-cases
 	python3 tools/corpus/pass_reach.py $(CORPUS_CASES)
+
+# Whether memoizing a subtype decision pays for a batch checker, which is
+# what FINDINGS.md's "The fork" says it does not. See tools/memo_pays.
+memo-pays:
+	ponyc -b memo-pays -o build tools/memo_pays
+	./build/memo-pays
 
 clean:
 	rm -rf build
