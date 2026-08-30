@@ -5,7 +5,7 @@ use "../../../upstream/tools/lib/ponylang/pony_analysis"
 
 actor \nodoc\ Main
   """
-  Two corpus checks over the files named on the command line.
+  Corpus checks over the files named on the command line.
 
   With no flag: dump the non-trivia token kinds of each file, as ponyc's
   token name, for comparison against ponyc's own lexer by `check.py`.
@@ -14,8 +14,14 @@ actor \nodoc\ Main
   reprint to the source it was built from, and any with more than one root.
   Losslessness over real code rather than over cases someone thought of.
 
+  With `--facts`: project the analysis facts from each file and report any
+  declaration with no name, with a count of what was projected.
+
   With `--tree`: print the parse tree, one indented line per element, so
   that what a rule builds can be read rather than guessed at.
+
+  With `--trivia`: report each file that begins with whitespace or a
+  comment rather than with a token that goes in the tree.
   """
   new create(env: Env) =>
     let auth = FileAuth(env.root)
@@ -23,6 +29,7 @@ actor \nodoc\ Main
     var reprint = false
     var facts_mode = false
     var tree_mode = false
+    var trivia_mode = false
     let paths = Array[String]
     for a in args.values() do
       if a == "--reprint" then
@@ -31,6 +38,8 @@ actor \nodoc\ Main
         facts_mode = true
       elseif a == "--tree" then
         tree_mode = true
+      elseif a == "--trivia" then
+        trivia_mode = true
       else
         paths.push(a)
       end
@@ -41,6 +50,7 @@ actor \nodoc\ Main
     var diagnosed: USize = 0
     var decls: USize = 0
     var top_level: USize = 0
+    var leading: USize = 0
 
     for path in paths.values() do
       let src =
@@ -101,6 +111,12 @@ actor \nodoc\ Main
             env.out.print("NOROOT " + path)
           end
         end
+      elseif trivia_mode then
+        checked = checked + 1
+        if _LeadsWithTrivia(src) then
+          leading = leading + 1
+          env.out.print("TRIVIA " + path)
+        end
       elseif tree_mode then
         env.out.print("### " + path)
         let tree = Parse(src)
@@ -150,6 +166,27 @@ actor \nodoc\ Main
     if facts_mode then
       env.out.print("declarations " + decls.string() +
         ", top level " + top_level.string())
+    end
+    if trivia_mode then
+      env.out.print("files " + checked.string() +
+        ", beginning with trivia " + leading.string())
+    end
+
+primitive \nodoc\ _LeadsWithTrivia
+  """
+  Whether a source begins with whitespace or a comment.
+  """
+  fun apply(src: String val): Bool =>
+    let stream = recover val TokenStream(src) end
+    try
+      (let kind, _) = stream(0)?
+      match kind
+      | TkWhitespace | TkLineComment | TkNestedComment => true
+      else
+        false
+      end
+    else
+      false
     end
 
 primitive \nodoc\ _Escape

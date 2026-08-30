@@ -43,7 +43,7 @@ rules produce were checked against ponyc's own before they were asserted on.
 just the standard library: its own test fixtures are where the grammar's
 edge cases live.
 
-969 of 969 files agree on tokens, and 969 of 969 reprint from their tree
+986 of 986 files agree on tokens, and 986 of 986 reprint from their tree
 with a single root. One produces a diagnostic:
 `compile_errors_04/main.pony` is the single line `use "unfinished`, a
 fixture whose whole purpose is to be unterminated.
@@ -56,8 +56,9 @@ quote or the end of the source and checks nothing else, and
 The reprint check found what the unit tests did not: leading whitespace or a
 leading comment was emitted before the root node rather than inside it,
 because `start` flushed pending trivia into the enclosing node and the root
-has none. Fourteen files in the standard library begin that way. The unit
-test now includes sources that start with trivia.
+has none. `./dump --trivia <files>` reports which files begin that way: 14
+of the 255 in `packages/`, and 104 over the whole tree. The unit test now
+includes sources that start with trivia.
 
 The diagnostic count is the sharper of the two signals, because it says the
 grammar accepted what ponyc accepts rather than merely that no bytes were
@@ -86,11 +87,11 @@ either.
 Valid Pony is not the hard case for an error-tolerant parser; a file being
 typed is. `mutate.py` truncates each source at eighths and deletes and
 inserts random runs of punctuation, from a fixed seed so a failure can be
-looked at rather than merely counted. `make mutants` builds 12597 of them
+looked at rather than merely counted. `make mutants` builds 12818 of them
 and reprints every one.
 
-All 12597 parse to a single root, reprint byte for byte, and terminate.
-8506 produce a diagnostic, which is what a malformed source should do and
+All 12818 parse to a single root, reprint byte for byte, and terminate.
+8629 produce a diagnostic, which is what a malformed source should do and
 why the summary counts diagnostics apart from failures.
 
 This is the check the hang above would have failed, and it is worth
@@ -102,15 +103,17 @@ re-running whenever a rule gains a loop.
 reports any declaration with no name, and any file that produced a
 diagnostic.
 
-Over all 969 files: 19003 declarations of which 3884 are top level.
+Over all 986 files: 19144 declarations of which 3928 are top level.
 
-Over `packages/` alone it is 9630 of which 1547 are top level, against 9267
-and 1542 before the expression rules. 307 of the new declarations are
-members of `object` literals, which the old balanced-region reading of a
-body passed over without seeing; the remainder is not attributed, because
-the old numbers cannot be re-derived from the current source.
+Over `packages/` alone it is 9656 of which 1555 are top level.
 
-A grep of `packages/` for lines beginning with an entity keyword finds 1589
-against the parser's 1547. The 42 difference is the check working: grep
+Measured when the expression rules landed, the same check went from 9267 and
+1542 to 9630 and 1547. 307 of that difference are members of `object`
+literals, which the old balanced-region reading of a body passed over
+without seeing; the remainder is not attributed, because the old numbers
+cannot be re-derived from the current source.
+
+A grep of `packages/` for lines beginning with an entity keyword finds 1597
+against the parser's 1555. The 42 difference is the check working: grep
 counts `actor Main` at column 0 inside `String`'s docstring, in a fenced
 example, and the parser does not.

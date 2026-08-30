@@ -14,12 +14,12 @@ the point of a round trip.
 ## Result
 
     files 255, packages 37, revision 293
-    entities 1547, unresolved 0, wrong file 0
-    uses 184, naming no known package 0
-    bindings 12470, not resolving to themselves 0
+    entities 1555, unresolved 0, wrong file 0
+    uses 182, naming no known package 0
+    bindings 12611, not resolving to themselves 0
 
-Over the whole ponyc tree rather than the standard library alone -- 967
-files, 365 packages -- the entity round trip also holds for all 3883
+Over the whole ponyc tree rather than the standard library alone -- 986
+files, 383 packages -- the entity round trip also holds for all 3928
 entities. The `use` check does not apply there, because those files resolve
 their imports against the standard library's root rather than against the
 tree they live in, and the tool is given one root.
@@ -40,8 +40,8 @@ standard library:
   `SCOPE()`, and it is easy to miss because an FFI declaration does not
   look like one. `net/tcp_connection.pony` declares thirty
   `use @pony_asio_event_*` with a parameter named `event`, and without a
-  scope each they were all visible over the whole file. That was 276 of the
-  12470 bindings resolving to the wrong one.
+  scope each they were all visible over the whole file. That was 276
+  bindings resolving to the wrong one.
 
 The revision count is the third number worth reading: 293 for 255 files is
 one per file, one per package, and the one the engine starts at. Nothing
