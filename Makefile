@@ -10,7 +10,8 @@ LIBS       := upstream/tools/lib/ponylang
 BRIDGE     := $(LIBS)/pony_compiler
 PATHS      := --path $(BRIDGE) --path $(LIBS) --path $(PONYC_LIB)
 
-.PHONY: all test syntax-test lsp lsp-test tools corpus mutants bind bench clean
+.PHONY: all test syntax-test lsp lsp-test tools corpus mutants bind bench \
+  clean FORCE
 
 all: test
 
@@ -50,10 +51,16 @@ tools: packages
 	  $(PONYC_LIB)/libponyc-standalone.a $(PONYC_LIB)/libponyrt-pic.a \
 	  -lstdc++ -lm -lz -lpthread -ldl -latomic
 
-$(CORPUS):
+# Rebuilt on every run rather than cached. Nothing about the list records
+# which files the tree held when it was written, so a cached one silently
+# drops a file added since -- and the walk costs far less than the checks
+# that read it.
+$(CORPUS): FORCE
 	mkdir -p build
 	find $(PONYC_ROOT) -path $(PONYC_ROOT)/build -prune -o \
 	  -name '*.pony' -print | sort > $@
+
+FORCE:
 
 # Whole-corpus checks: the lexer against ponyc's, every file reprinting from
 # its tree, and the facts projecting without a gap. See tools/agreement.
