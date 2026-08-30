@@ -11,7 +11,7 @@ BRIDGE     := $(LIBS)/pony_compiler
 PATHS      := --path $(BRIDGE) --path $(LIBS) --path $(PONYC_LIB)
 
 .PHONY: all test syntax-test lsp lsp-test tools corpus mutants bind bench \
-  clean FORCE
+  types clean FORCE
 
 all: test
 
@@ -93,6 +93,12 @@ bench:
 	ponyc -b actor-latency -o build tools/actor_latency
 	./build/memo-bench
 	./build/actor-latency
+
+# What content-addressed type identity costs: the fourth measurement
+# DESIGN.md question 2 listed and did not take. See SEMANTIC_DESIGN.md.
+types:
+	ponyc -b type-hash -o build tools/type_hash
+	./build/type-hash
 
 clean:
 	rm -rf build
