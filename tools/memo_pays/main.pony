@@ -32,8 +32,8 @@ actor \nodoc\ Main is BenchmarkList
   to positional node identity -- `ast_of` at 1,082,246 calls and 243,357
   interned `NodeRef`s -- and says an item tree addressed by name "removes all
   three costs at once". `pony_bind` already addresses declarations by name
-  path and `SEMANTIC_DESIGN.md` proposes content-addressed types, so neither
-  interning cost is present here.
+  path and `SEMANTIC_DESIGN.md` keys memos on canonical type values
+  deduplicated at construction, so neither interning cost is present here.
   """
   new create(env: Env) =>
     PonyBench(env, this)

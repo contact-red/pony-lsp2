@@ -53,8 +53,9 @@ argument tuple of a multi-argument query on *every* call, hit or miss", and
 tree addressed by name "removes all three costs at once".
 
 This design has neither cost. `pony_bind` already addresses declarations by
-name path, and `SEMANTIC_DESIGN.md` makes a type's identity its own content,
-so the key needs no interning — the digest already is the key.
+name path, and `SEMANTIC_DESIGN.md` keys the subtype memo on canonical type
+values deduplicated at construction, so there is no interning table and
+nothing is interned per call.
 
 **So "memoization is a cost with no return" is a property of positional
 identity plus salsa's interning, not of memoization.** Remove those and the

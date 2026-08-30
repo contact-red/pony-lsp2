@@ -1,457 +1,605 @@
-# The semantic layer: answers to `CHECKER_BRIEF.md`
+# The semantic layer: design
 
-Answers the six questions the brief asks before any type checker is written.
+Answers the six questions in `CHECKER_BRIEF.md`, plus a seventh the
+evaluation showed was missing: package loading.
 
-Produced by one pass rather than by the design ensemble in
-`pony-software-design` — this session had no subagents, so the three design
-personas and five evaluation personas did not run. What follows is one
-reading, and the evaluation stage that would normally stress it did not
-happen. Weigh it accordingly.
+Produced by the full `pony-software-design` loop: three design personas
+from different entry points, a synthesis, and two rounds of five-persona
+evaluation, the second on the revised candidate. The first candidate was
+rejected outright; this one's second evaluation round produced no
+rejections. One policy decision is open and marked for Red (the loader
+confinement question, at the end of the package-loading section).
 
-Nothing here is implemented. One measurement was taken and is reported below;
-everything else is a proposal.
+Nothing here is implemented. Claims marked *unverified* are exactly that;
+a complete list is at the end. Measurements cited by name live in
+`tools/memo_pays`, `tools/type_hash`, and `tools/corpus`.
 
-## Divergences
+## Divergences from what exists
 
-Where this departs from what exists or from what the brief assumes.
+1. **`Binder._engine` changes from `embed` to `let`, and `create` gains
+   `engine': Engine = Engine`.** An embed field cannot hold an externally
+   constructed object, so sharing one dependency graph between the binder
+   and the checker needs this one-keyword change (cost: one indirection).
+   The defaulted parameter keeps every existing caller and all 13 test
+   sites compiling.
+2. **`Binder.set_package_path` becomes per-using-package**: the map from a
+   `use` string to a package gains the using package as part of its key.
+   Today it is global, and a batch run that loads ~1,400 case packages
+   through one process would accrete mappings across cases; the loader
+   resolves per using package anyway, so it supplies the key naturally.
+3. **`Engine` gains a re-entry trap, and dependency lists are deduplicated
+   at frame pop.** `demand` of a query already being computed currently
+   recurses to stack death; it becomes a located `_Unreachable` — an
+   untested, crash-only backstop, since the design's discipline is that
+   the engine never sees a cycle at all. The descent's depth over a real
+   semantic dependency graph is *unverified*; a max-depth counter in the
+   trust harness is the slice-2 gate on it. `_record_read` currently appends
+   every read, so a dependency list is a demand log rather than an edge
+   set; deduplicating on frame pop keeps revalidation walks O(distinct
+   edges). No initial values, no fixpoint machinery, no result storage.
+4. **`pony_syntax` gains a parser depth guard**, as a slice-0
+   prerequisite. The parser today segfaults at roughly 15,000 nested
+   parentheses (reproduced; about 20 KB of hostile input), and the batch
+   driver is one process over every case, so one such file kills every
+   verdict in the run. The guard turns the overflow into an ordinary
+   diagnostic. Until it lands, the exit-code contract below is unmeetable
+   on such inputs, and this document says so rather than promising it.
+5. **The corpus instrument is rebuilt, in two steps, before any ceiling
+   below is relied on.** `extract_corpus.py`'s pass detection reads only
+   the one-argument `TEST_COMPILE` define, and three suites pass the
+   target pass as a per-invocation macro argument, so the fix parses per
+   invocation and records the pass per case in the manifest.
+   `pass_reach.py`'s exclusion rule is then re-derived per case, and
+   `corpus_report.py` asserts verdict-file completeness against the
+   manifest so a mid-batch crash cannot yield a silent prefix rate.
+6. **The first shipped binary is the driver, not the signature layer.**
+7. **`DocumentFacts` is split into per-fact queries** — as its own
+   reviewed change, off the checker's critical path. The batch argument:
+   parse alone measured 297 ms against 447 ms for all six projections
+   over the standard library (timed during the first evaluation round),
+   so the checker pays 34% for projections it never reads. The
+   constructor is public with consumers in `pony_bind`, both trust
+   harnesses, `pony-lsp`, and 13 test sites — which is why it ships
+   separately.
 
-**`pony_query` gains cycle handling now, not later.** The brief lists it as
-question 3 and `DESIGN.md` deferred it until subtyping needed it. Subtyping is
-the first slice, so it is needed at the start rather than at the end.
+## Package loading
 
-**Type identity does not use the engine's memo store.** `DESIGN.md` chose a
-persistent map published from one actor, measured. That decision stands for
-memoized *results*. Type identity is proposed as content-addressed instead,
-which means there is no interning table at all — a different mechanism, not a
-different tuning of the same one.
+`Loader` lives beside the driver in `tools/checker` and is the only
+component that reads disk or resolves a `use`. It runs to completion for a
+package before that package is checked.
 
-**`DocumentFacts` is split.** It currently computes six projections in one
-constructor. Question 6 proposes splitting it, which changes a public
-constructor in `pony_analysis`.
+**The scheme table is ponyc's** (`use.c:32-144`): only the default scheme
+— a bare locator — names a Pony package and is resolved. `lib:` is a
+link-library directive and `path:` appends to link-time library paths
+(`program.cc:171-196`); both are recorded and skipped, as are the C-shim
+schemes. An unknown scheme is a diagnostic. **Guards are evaluated**
+against a declared flag configuration, and a `use` whose guard is false is
+skipped entirely — the corpus contains programs that are accepted only
+because a false-guarded `use` never loads (whether one fixed configuration
+suffices for the corpus is *unverified*).
 
-**The brief's "number to beat" is the wrong measure.** It names ponyq's 49.5%
-agreement as the target. Agreement counts the cases ponyc *accepts*, and a
-checker that finds nothing wrong agrees with all of them, so the floor is
-46.1% before a single rule is written. Question 5 has the measurement. What a
-slice is worth is its distance above that floor, not its agreement.
+**Resolution order for a bare locator**, matching ponyc's `find_path` less
+the upward `../pony_packages` walk: an absolute path as given; relative to
+the using package's directory — and a locator written with an explicit
+`./` or `../` that fails there fails outright, never falling through to
+the roots (ponyc's rule); then each search root in order (`--path` flags,
+then `PONYPATH`). `builtin` is resolved from the roots once, before the
+walk. The upward walk is deferred; a scan of the extracted corpus found
+zero relative `use`s and nothing needing it.
 
-## What was measured
+The loader walks the `use` graph a level at a time, reading each file's
+imports back from the binder — the binder parses; the loader never does.
 
-`tools/type_hash`, `make types`. The fourth measurement `DESIGN.md` listed and
-never took: what content-addressed type identity costs.
+**A package's identity is its canonical (realpath) directory path**,
+carried as `PackageId`, whose constructor is private to the loader: a
+`use` string can never become a package identity except through
+resolution. Two locators reaching one directory are one package. Workers
+never resolve — every consumer reads the same resolved mapping from the
+same inputs, so agreement on type identity is by shared immutable input,
+not by protocol.
 
-10,000 types at depth 4 with up to 3 type arguments, walked with a prime
-stride so the access pattern is not sequential. Five runs, because a single
-run moves by more than the deviation `pony_bench` reports for it.
+**Verdicts split as ponyq's do**: a root directory that cannot be loaded
+is `load-failed`, and so is a run that cannot resolve `builtin` — that is
+a precondition of checking anything, not a `use` inside the program. An
+unresolvable `use` inside a loaded program is an ordinary ponyc-shaped
+diagnostic and the verdict is `fail`. In single mode a load failure
+prints the `LoadError` and exits 255. The distinction matters
+operationally — a misconfigured search path reads as load failures, not
+as a wall of spurious rule rejections.
 
-| | median | across five runs |
-|---|---|---|
-| harness — two array reads, subtract this | 33 ns | 33-34 |
-| build a type, folding children's cached digests | 344 ns | 326-346 |
-| build a type, hashing the whole subtree | 930 ns | 929-948 |
-| look a digest up in a persistent table | 532 ns | 498-550 |
-| decide equality by comparing digests | 203 ns | 201-211 |
-| decide equality by walking both types | 463 ns | 417-486 |
+Errors are data: `LoadError` is `(UnloadableRoot | UnreadableFile |
+EmptyPackage)`. An earlier draft carried an `AmbiguousUse` variant for one
+`use` string resolving to two directories; the per-using-package map
+(divergence 2) dissolves that class — resolution is first-match and
+deterministic per (using package, string), so two packages resolving one
+string differently is supported, not ambiguous — and an unreachable error
+variant earns no place in the vocabulary.
 
-Read the ratios, not the magnitudes: every row above the harness pays two
-dependent pointer chases into a 10,000-object heap, and that dominates the
-absolute numbers.
+**Open decision (Red): confinement.** Dependency `use` strings are written
+by whoever wrote the dependency; the loader as specified honours absolute
+paths, and diagnostics echo source lines from whatever was loaded. This is
+ponyc parity, verified against `package.c` — but this tool's brief is to
+read source the invoking developer did not write. The options are parity
+(documented), a workspace-confinement default with an escape flag, or
+confinement only in `--batch`. This is a threat-model call and is left
+open here.
 
-Three results, on medians with the harness subtracted. Caching the digest in
-the value makes construction **2.9x** cheaper than recomputing it from the
-subtree — 311 ns against 897 ns — so `DESIGN.md`'s "bottom-up, cacheable in
-the value, so O(1) amortised" holds. Digest equality is **2.5x** cheaper than
-structural equality, 170 ns against 430 ns, and the gap widens with type
-depth. And a table lookup costs **1.6x** the entire fold that replaces it,
-499 ns against 311 ns, before any coordination cost — ponyq additionally pays
-a shard lock here that a Pony `val` snapshot would not.
-
-## Question 1 — the type IR, and identity
+## The type IR, and identity
 
 ### The IR
 
-Start from `hir.rs` rather than inventing one. It is 217 lines, it checks the
-standard library, and four of its decisions are load-bearing in ways that are
-not obvious from the shape:
-
-- **Aliases are kept unexpanded.** Expanding at lowering does not terminate,
-  because an alias may refer to itself through a nominal's type arguments and
-  ponyc's typealias-recursion pass permits that.
-- **A type-parameter reference stores the capability as *written*, not the
-  one its constraint implies.** `FINDINGS.md` reports this as the fix that
-  removed a cycle: computing the effective capability during lowering made
-  `lower_type` and `typeparam_constraint_of` mutually recursive. The effective
-  capability is resolved where it is used instead.
-- **A lambda type stays a type.** ponyc desugars `{(A): B}` into an anonymous
-  interface added to the module — a tree mutation that has to invent a name.
-  Here it is structural, and subtyping treats it as an interface with one
-  `apply`.
-- **There is an `Error` type that is a subtype and supertype of nothing.** One
-  bad type does not cascade into every expression that touches it.
-
-The Pony shape is a union, so the compiler can check a match is exhaustive:
+ponyq's `hir.rs` ported as a Pony union, so matches are exhaustive:
 
 ```pony
 type Ty is
-  ( Nominal | AliasRef | TypeParamRef | Union | Isect | Tuple | Arrow
-  | LambdaTy | CapType | IntLit | FloatLit | ThisType | DontCare | ErrorTy )
+  ( Nominal | AliasRef | TypeParamRef | UnionTy | IsectTy | TupleTy
+  | Arrow | LambdaTy | CapType | IntLit | FloatLit | ThisType
+  | DontCare | ErrorTy )
 ```
 
-`IntLit` and `FloatLit` are separate from any concrete numeric type on
-purpose. ponyc calls them `TK_LITERAL`, and a literal that never meets a
-context is an error rather than a default — collapsing them into `I64` would
-make that error unrepresentable.
-
-### Identity
-
-`is_subtype(a, b)` is memoizable on its arguments only if two structurally
-equal types are the same key. That is the invariant the whole layer rests on,
-and `FINDINGS.md` says so plainly: it is what ponyc cannot do, which is why
-`subtype_cache.c` hashes a structural fingerprint instead.
-
-ponyq gets it from a central mutable table — intern, receive a counter — and
-pays for it with the shard lock that is the whole of its 6-7x parallel
-ceiling. Pony cannot build that design, so the question is open rather than
-inherited.
-
-**Take `DESIGN.md`'s candidate D: a type's identity is a 128-bit structural
-digest, folded from its children's digests when it is constructed.** There is
-no interning table, no allocator, and no coordination. Two actors that build
-the same type derive the same identity without communicating, because the
-identity is a function of the structure and nothing else.
-
-The measurement says this is cheaper than the table it replaces, but cost is
-not the argument. The argument is that interning stops being a coordination
-mechanism. Under a central table, "two structurally equal types get the same
-key" is a property maintained by a protocol; under a digest it is a property
-of arithmetic. `DESIGN.md` reached the same conclusion from correctness alone
-and said it should be preferred before performance is considered — the
-measurement now says performance agrees rather than being a price.
-
-Storage deduplication is then a separate, optional, local concern. A worker
-may keep a map from digest to `Ty` to avoid rebuilding equal types; it may
-skip it, and nothing breaks except memory.
-
-### The collision, stated
-
-A 128-bit digest collision makes two different types one type, silently, and
-produces a wrong answer with no error. That has to be written down rather than
-waved at.
-
-At ponyq's measured 243,357 interned keys per check, the birthday probability
-is about `n²/2^129`, or 9 x 10^-29. It will not happen. But "will not happen"
-is a probability, not a guarantee, so the design should not depend on the
-digest alone where it is cheap not to.
-
-**Verify structurally on insert into a deduplication map, never on read.** A
-map from digest to `Ty` is the only place two distinct types can be conflated,
-and it is entered once per distinct type rather than once per comparison. The
-measured structural walk is 430 ns — paid on insert, it is invisible; paid on
-every equality test, it would defeat the purpose. A worker that keeps no map
-does no verification and accepts the bound, which is the honest trade and
-should be documented at the type rather than assumed.
-
-## Question 2 — where the sugar goes
-
-ponyc rewrites the tree. `a + b` becomes a call to `add`, a `for` becomes a
-while over an iterator, a concrete type with no constructor gets a `create`, a
-primitive gets `eq` and `ne`. The tree here is immutable and lossless and will
-not be rewritten, which is the same constraint ponyq had, and its split is the
-right one:
-
-**Sugar that only affects checking is applied on the way past.** The checker
-types `a + b` as the call it stands for and a `for` loop as the iterator
-protocol it stands for, without materialising either. Nothing is written back
-and no query result records the desugared form.
-
-**Sugar that changes what a signature contains lives in the signature
-queries**, because subtyping depends on it. `method_table(entity)` synthesises
-the default `create`, a primitive's `eq` and `ne`, and default return types.
-
-This costs nothing in purity: synthesis is a pure function of the definition,
-so `method_table` is a query like any other, and its result is a value that
-compares equal when the definition has not changed.
-
-It costs something in visibility, and that is the part to plan for. **The
-order of synthetic members is semantically load-bearing and stops being
-visible.** ponyc adds a primitive's `eq` *after* the traits pass has copied in
-what it inherits, so an inherited `eq` wins; ponyq got this backwards and
-`primitive Less is Equatable[Compare]` failed. In a pass pipeline that
-ordering is a line in the pass list. In a set of queries it is a line inside
-one function, and nothing enforces it.
-
-So: `method_table` gets a test asserting the inherited-wins case directly, on
-`Less is Equatable[Compare]`, rather than relying on a corpus run to catch a
-regression at a distance.
-
-## Question 3 — cycle handling
-
-### What the engine does today
-
-Nothing, and it does not fail safely. `Engine._bring_current` recurses into
-dependencies and `_run` calls `runner.run`, which calls `demand`, which
-re-enters `_bring_current`. A query that reaches itself recurses until the
-stack ends. There is no in-progress state to detect it with.
-
-The engine's own docstring already flags a related unknown: the descent "is
-bounded by the stack rather than by anything the engine controls. Nothing
-measured yet says how deep a real dependency chain gets."
-
-### The minimum
-
-Two additions.
-
-**An in-progress mark per query, and a caller-supplied initial value.** When
-`demand` reaches a query already being computed, it does not recurse — it
-returns, and the caller reads whatever initial value the query kind supplies.
-For `is_subtype` that value is `true`, and coinductive subtyping falls out of
-it. `FINDINGS.md` calls cycles "the piece the model fits best" and reports
-this as one line replacing ponyc's per-thread assumption stack.
-
-**Memoizing the coinductive result is sound here and is not sound in ponyc.**
-ponyc's `is_x_sub_x` clears its cache at every depth-0 entry, because a
-conditional entry is only valid while the frame that created it is live, and
-because a freed AST's address can be reused. Neither hazard exists with
-content-addressed identity: a digest is stable and a memo is keyed on values.
-So the result is shared across top-level calls, which ponyc cannot do — it
-rediscovers `Array[A] <: Seq[A]` on every call.
-
-**Fixpoint iteration is not needed yet.** Of the five cycles `FINDINGS.md`
-records, one is inherent and reached constantly, one was removed by not
-computing a value too early, and three are defensive and the standard library
-reaches none. Build the initial-value re-entry now and add iteration when a
-query needs it.
-
-### The one thing that cannot be a query
-
-ponyc carries a *divergence* guard, not a cycle guard: on recursive generic
-interfaces each level has the same definitions but strictly larger type
-arguments, so no pair repeats and coinduction never fires. ponyc counts
-same-definition frames and bails after four.
-
-That cannot be expressed. It is a function of the call stack, and a memoized
-query may depend only on its key — a result computed under a stack-dependent
-bound would be memoized and reused where the bound did not apply. ponyc has
-the same problem and solves it by poisoning the cache entry.
-
-Bound on the structural depth of the two types instead, which *is* a function
-of the key, so the memo stays sound. It is not ponyc's rule and will disagree
-on deeply nested inputs. The corpus will say how many.
-
-### The lesson worth carrying
-
-`FINDINGS.md` states it and it generalises past its instance: **a cycle in a
-query graph is sometimes a report that a value is being computed too early.**
-Two of ponyq's five cycles were this, and both were removed by asking for a
-piece of a definition rather than for the definition's signature. Every pass
-boundary in ponyc is worth reading as a possible instance.
-
-## Question 4 — diagnostics that can explain themselves
-
-Split the problem, because it is two problems wearing one name.
-
-**A query that returns a value carries its diagnostics as a field.** This is
-most of them. `body_types(method)` returns the type of every node plus that
-body's diagnostics; `method_table` returns members plus what was wrong with
-them. salsa needs accumulators because a query whose result is interned cannot
-also carry a list; a Pony query returning a plain `val` struct has no such
-limit. `DESIGN.md` reached this already.
-
-**`is_subtype` is the hard case and it is the only one.** It returns `Bool`.
-Adding a reason changes the result type, which changes what is memoized, which
-destroys the sharing that makes it worth memoizing — and it is called on the
-order of a hundred thousand times per check.
-
-ponyc's answer is a second path: re-run with an error frame when an
-explanation is needed. `FINDINGS.md` says the trick works here too and names
-the cost precisely — the deciding code and the explaining code are two paths
-that must agree and will quietly stop agreeing.
-
-**Take the two paths, and make the agreement checkable rather than
-aspirational.** `is_subtype` stays `Bool` and memoized. `explain_subtype` is
-unmemoized, walks the same rules, and returns a reason. The invariant is that
-one returns `false` exactly when the other returns a reason.
-
-That invariant is testable in the harness that already exists: a corpus mode
-that calls the explainer on every rejection the checker makes and fails when
-it produces no reason. Every one of ponyq's grammar bugs was found by the
-corpus rather than by a hand-written test, and this is the same shape of
-problem — a divergence that appears on inputs nobody thought to write down.
-
-The residual risk is the other direction: the explainer producing a reason
-where the checker accepted. Checking that costs a full explainer run on every
-accepted pair, which is too expensive to leave on. Run it as a corpus mode, not
-in the checker.
-
-## Question 5 — the first slice
-
-The brief proposes signatures without bodies and asks whether that is the
-right cut, what it can report, and what agreement it should reach. The last
-question is the one that matters and the answer is uncomfortable.
-
-### What it is
-
-Everything needed to say that each declaration's signature is well formed and
-every type name in it resolves: the type IR, lowering, the capability algebra,
-`method_table` with its synthesised members, reification, and enough subtyping
-to check that a class provides what it claims. ponyq's counterparts are 217 +
-1,031 + 427 + 1,950 lines, and it leaves out the 3,219-line half.
-
-### What it can and cannot report
-
-It can report an unresolved type name, a wrong type-argument count, a
-constraint a type argument does not satisfy, a capability that is not legal
-where it is written, and a class that does not provide what its `provides`
-list claims. Every one of those is a real ponyc error and none needs a body.
-
-It cannot report anything inside a method body, which is where most of a
-compiler's errors live.
-
-### What agreement it reaches, measured
-
-`tools/corpus` is ponyq's harness, ported. `extract_corpus.py` writes each
-`TEST_F` in ponyc's `test/libponyc/*.cc` out as a package with the verdict its
-macro asserts — 1,416 cases, 183 skipped as not a plain verdict on one source.
-
-`pass_reach.py` settles what this slice can reach without having to build it.
-Everything the slice does happens at or before ponyc's `traits` pass, and body
-checking is `expr`, so running each case with ponyc stopped after `traits`
-says which rejections need a body and which do not.
-
-Over the 1,174 cases whose own suite runs `traits` at all — 242 stop earlier,
-and for those ponyc never runs the passes being compared, so they are
-excluded:
-
-| | cases |
-|---|---|
-| ponyc accepts, nothing wrong by `traits` | 538 |
-| ponyc accepts, error by `traits` | 3 |
-| ponyc rejects, error by `traits` — reachable without bodies | 99 |
-| ponyc rejects, nothing wrong by `traits` — needs a body | 534 |
-
-**The ceiling is 637 of 1,174, or 54.3%**, assuming the slice makes no false
-rejection. My earlier estimate of 9% was wrong, and wrong in method rather
-than in magnitude: it counted suites a signature checker could contribute to
-and forgot that agreement counts the accepted cases too.
-
-**Accepting every program scores 46.1%.** That is the floor any agreement
-figure sits on, and it is what makes the brief's framing misleading. The
-slice's 99 reachable rejections are worth **8.2 points** over a checker that
-does nothing at all.
-
-It reframes ponyq too. Its 49.5% is about three points above the same floor:
-if its corpus had a similar accept rate, its 99 wrong rejections very nearly
-cancelled its correct ones, and 12.9k lines bought a small margin over
-accepting everything. That arithmetic assumes ponyq's accept rate matches this
-corpus's, which I have not verified.
-
-So the slice is worth building, on a better argument than I had: its ceiling
-is above what ponyq measured, not far below it. Two reasons stand independent
-of the number. Bodies cannot be built first — `body_types` reads signatures
-and `FINDINGS.md`'s central claim is that it reads nothing else, so signatures
-are the only layer with no dependency above it. And the harness, the CLI
-contract and the exit codes have to exist before any number can move at all;
-they now do.
-
-## Question 6 — granularity
-
-**Fix it now.**
-
-`FINDINGS.md` names file-level invalidation as the limiting flaw and measures
-it: editing one method body in `list.pony` re-ran 1,706 queries, 160 of them
-`body_types` — one for every method in the file rather than one for the method
-edited. In `builtin/array.pony` the same edit costs 33% of a cold check. The
-mechanism is precise and is not coarse dependency tracking: `parse(file)`
-returns one arena and every node id shifts when the file changes, so a query
-keyed on "node 8237" is keyed on something the edit moved.
-
-There are two reasons to do it before the semantic layer rather than after.
-
-**The semantic layer is what makes it expensive.** Today the numbers are
-small: `pony_bind` already keys declarations by name path and holds no spans,
-so a body edit leaves the package index untouched. Once signatures are keyed
-by node index, every signature in a file re-lowers on any edit to it, and
-every memo above them falls over. Retrofitting means re-keying every semantic
-query that exists by then.
-
-**`pony_bind` already took half the fix.** `BoundItem` carries a name path and
-no span, deliberately. The missing half is item-relative spans, so that an
-edit inside one item leaves every other item's facts bit-identical.
-`DESIGN.md` records that half as deferred and warns that a reader seeing
-`EntityPath` will assume otherwise.
-
-The related defect is in `pony_analysis`: `DocumentFacts` computes
-declarations, uses, bindings, foldable regions, diagnostics and a full byte
-offset table in its constructor, so one keystroke recomputes all six. Split it
-into per-fact queries. That is a change to a public constructor and it is
-listed in the divergences above.
-
-What this costs: `FINDINGS.md` calls it "a real piece of design rather than a
-tweak", because bodies need identities that survive a sibling's edit. It is
-the largest piece of work in this document that is not the type checker
-itself.
-
-## What is uncertain
-
-Ordered by what being wrong would cost.
-
-**1. Whether one actor is still the right shape once checking is the
-workload.** `DESIGN.md` chose a persistent map published from one actor and
-noted A's real cost is that it serialises — "while a cold check runs, the
-actor answers nothing". Content-addressed identity removes the reason workers
-had to coordinate, which makes multiple checking actors possible for the first
-time. Nothing here designs that, and the memo store decision was taken when it
-was not possible. It should be revisited before the slice is built, not after.
-
-**2. Whether the engine's recursion survives a real dependency graph.**
-`_bring_current` descends recursively and its docstring says nothing measured
-says how deep a chain gets. A signature layer over the standard library is the
-first thing that will find out, and a stack overflow is not a graceful
-failure.
-
-**3. Whether the ceiling is reachable.** 54.3% assumes the slice makes no
-false rejection, and ponyq made 99. Every false rejection costs a point
-directly, so a slice that is merely careless lands below the 46.1% floor. The
-ceiling is what the cut permits, not what an implementation will get.
-
-**4. The divergence-guard disagreement.** Bounding on structural depth rather
-than ponyc's frame count will disagree on some inputs. `FINDINGS.md` says the
-corpus will say how many; ponyq ran that corpus and the number is not recorded
-in the sections I read.
-
-**5. Whether `body_types` as one query per body is right in Pony.** ponyq's
-argument is that two ponyc rules read an expression's *position* —
-auto-consume in return position, and whether a call's result is used — so a
-node-keyed query could not answer them. That reasoning is about the rules, not
-the language, so it should carry. It has not been checked against Pony's
-actor granularity, where the unit of concurrency is not the unit of
-memoization.
-
-**6. Whether skipping structural verification is acceptable for a worker that
-keeps no deduplication map.** The bound is 9 x 10^-29 and the failure is
-silent. I believe it is acceptable and I have not seen anyone else make that
-trade in a compiler.
-
-## A ponyc bug found while measuring
-
-`DoNotOptimise[(U64, U64)]` — a tuple type argument — segfaults ponyc 0.69.1
-(LLVM 22.1.6) in LLVM's X86 instruction selection. Deterministic, and it
-reproduces at `--debug`. The scalar form compiles.
+Kept decisions, each with its recorded reason from `FINDINGS.md`: aliases
+unexpanded (expansion does not terminate; ponyc permits self-reference
+through type arguments); `TypeParamRef` stores the capability *as
+written*, `(Cap | None)` — computing the effective capability during
+lowering is the cycle ponyq removed by not computing it there; lambda
+types stay structural, subtyped as a one-`apply` interface; `ErrorTy` is a
+subtype and supertype of nothing, so one bad type does not cascade;
+`IntLit`/`FloatLit` distinct from every concrete numeric type. `eph` is
+part of the value on every capability-bearing variant: `String iso` and
+`String iso^` are two types.
+
+`Nominal.def` and `AliasRef.def` are `EntityPath`; `TypeParamRef.def` is a
+`TypeParamPath` (owner path, optional method name, parameter name). No
+node indices anywhere in the IR. Every `Ty` also carries `depth: U32`,
+folded at construction: lowering refuses a type past a configured depth
+with an ordinary diagnostic, and the same field bounds the recursive
+walks (equality, hashing, the canonical compare) so no walk recurses
+past what lowering admitted.
+
+**Every variant's constructor is package-private; the public surface is
+factory functions that consult the deduplication map.** A `Ty` that
+exists is therefore canonical by construction, which is what the
+reflexive shortcut and the memo fast path below rely on — an invariant
+the compiler enforces at the package boundary rather than a hit rate to
+hope for.
+
+### Identity: structural equality decides; the hash accelerates
+
+- Every `Ty` carries a cached 64-bit structural hash, folded from its
+  children's cached hashes at construction — O(1) amortised, measured in
+  `tools/type_hash`.
+- `Ty.eq` is: `is` (pointer identity — the common case, since
+  construction deduplicates), else hash mismatch answers `false`, else a
+  full structural walk answers. The `EntityPath` precedent: hash as fast
+  path, equality as the decision.
+- **Deduplication is inherent**: each checker owns a `HashMap[Ty, Ty]`
+  with hash = cached hash and eq = structural, consulted by every
+  factory. The map's own bucket handling is the collision handling.
+
+A hash collision costs a wasted structural walk (measured at 809 ns per
+walk, paid once per distinct type), never a wrong verdict. There is no
+probability to state, no hash function to approve, and no collision
+failure mode; the existing FNV-style fold is retained because its quality
+affects only speed. One composed measurement remains to take before
+building: the actual construction path — a mutable `HashMap[Ty, Ty]` with
+a custom hash function, probed with a fresh non-canonical key over
+canonical children — since the existing benchmarks price its pieces
+separately (*unverified* as a composition; the pieces suggest roughly
+0.1 s per standard-library check).
+
+**Canonical form, enforced at the only construction site.** The
+`UnionTy`/`IsectTy` factories flatten nested same-kind children,
+deduplicate by structural equality, and sort by a total structural order
+on `Ty` (variant tag, then fields, then children; the cached hash orders
+as a fast path with the structural order as tiebreak, so a collision
+cannot destabilise the sort, and the order consults neither pointer
+identity nor map iteration order — it is deterministic across checkers).
+`(A | B)` and `(B | A)` lower to one value.
+
+**Stated plainly:** structural equality is not Pony type equality —
+aliases stay unexpanded, so an alias and its expansion are different `Ty`
+values. Semantic questions go through subtyping, which unfolds.
+
+## Where the sugar goes
+
+Sugar that only affects checking is applied on the way past and never
+materialised. Sugar that changes what a signature contains — default
+`create`, a primitive's `eq`/`ne`, default return types — is synthesised
+inside `method_table`, after inheritance, so inherited members win. The
+ordering is load-bearing and invisible in a query decomposition, so it is
+pinned by a direct test on `primitive Less is Equatable[Compare]`
+(verified against `traits.c:841-947`), not by a corpus run at a distance.
+
+## Cycles
+
+### The phase rule: lowering and synthesis never invoke subtyping
+
+Constraint checks and provides checks are diagnostics queries over
+*completed* method tables; lowering and `method_table` synthesis never
+call the subtype evaluator. Without this rule, `class Foo is
+Comparable[Foo]` — the standard library's most common generic pattern —
+would demand `method_table(Foo)` while Foo's own query is mid-run and hit
+the engine trap. ponyc's traits pass makes the same possible: it never
+calls `is_subtype` (verified — its signature comparison is structural).
+This diverges from ponyc's placement of constraint checks in its names
+pass, and the divergence is forced by the memoized shape.
+
+### The engine never sees a cycle
+
+Signature-level cycles are prevented by construction — `entity_kind` and
+default capabilities come from `BoundItem`, already computed by
+`pony_bind`, so lowering never asks a signature for what a bind fact
+answers — or detected before `demand`: `method_table`'s accessor checks a
+`_computing` set and returns a distinct `MethodTable.cyclic(entity)` on a
+provides cycle, so no cycle edge ever enters the engine's dependency
+lists. The re-entry trap is the backstop if the discipline slips.
+
+**`MethodTable.cyclic` propagates and fails closed.** A table with a
+cyclic provider is itself cyclic; every consumer treats a cyclic table
+the way subtyping treats `ErrorTy` — nothing is concluded from it. The
+memo exclusion has a mechanism, not just a rule: touching a cyclic table
+ORs poison into the current frame, so a verdict computed against one
+classifies `_Poisoned` and never reaches the durable memo. The
+user-facing diagnostic comes from `provides_acyclic`, a
+name-level walk with a visited set that runs before synthesis and reports
+ponyc's own error; the dynamic `_computing` guard only keeps the
+computation finite, and a disagreement between the two is a defect the
+counters surface (below) makes observable.
+
+### The subtype evaluator owns coinduction
+
+One plain recursive function — not engine queries — with an explicit
+per-top-level-call context: an assumption stack pushed at the pair shapes
+ponyc guards; a repeated pair returns `true` (the coinductive base case),
+recording the matched frame index.
+
+**Each frame carries two accumulators, ponyc's discipline ported with its
+merge rules** (`subtype.c:1859-2075`): the minimum matched assumption
+index (merged by minimum into the parent on every exit) and a poison flag
+(merged by OR into every ancestor). The two are orthogonal — a result can
+lean on an open assumption *and* sit above a poisoned bail — and the
+classification site reads both, poison dominating:
 
 ```pony
-use "pony_bench"
-
-actor Main is BenchmarkList
-  new create(env: Env) => PonyBench(env, this)
-  fun tag benchmarks(bench: PonyBench) => bench(_Tuple)
-
-class iso _Tuple is MicroBenchmark
-  fun name(): String => "tuple"
-  fun ref apply() =>
-    DoNotOptimise[(U64, U64)]((U64(1), U64(2)))
-    DoNotOptimise.observe()
+primitive _Discharged
+primitive _UnderAssumption
+primitive _Poisoned
+type _Dependence is (_Discharged | _UnderAssumption | _Poisoned)
 ```
 
-The crashing function is
-`DoNotOptimise_val_apply_t2_U64_val_U64_val_2WWo`. `tools/type_hash` works
-around it by observing one lane at a time.
+**Only `_Discharged` results are ever stored durably — and nothing else
+is stored at all.** A result whose derivation leaned on an enclosing
+in-progress assumption is returned to its caller and discarded: no
+parking, no promotion, no per-call conditional table. This is the
+smallest sound discipline, and it is stricter than ponyc's: ponyc caches
+results conditional on the top-level assumption behind read gates and
+refuses to cache only the intermediate-dependent case ("the entry would
+depend on an intermediate assumption with no clean invalidation hook");
+discard-only takes the refusal for both classes. An earlier draft's
+promotion-on-confirmed-head mechanism was shown by evaluation to memoize
+a wrong, order-dependent verdict on a constructed multi-entity program
+(the program is retained as a required unit test alongside the
+four-interface walk-order case; the four-interface case alone cannot
+catch this class). The cost is
+re-derivation of in-cycle pairs within a top-level call, bounded by cycle
+size; a counter watches the volume at the standard-library gate, and if
+it shows a blowup, ponyc's conditional-read gates are the recorded,
+measured follow-up — ported verbatim, not improvised.
+
+The durable memo lives in **its own small package**, whose public
+`insert` takes the `_Dependence` union and classifies internally; the
+settled-verdict type never leaves it. The single-construction-site
+property is thereby structural — enforced by a package boundary the
+compiler checks — rather than a review convention. The memo persists
+across top-level calls (`Array[A] <: Seq[A]` is discovered once, the
+sharing ponyc cannot have) subject to the batch partition rule below.
+The three defensive cycle families ponyq recorded — none reached by the
+standard library — get the same base-case treatment inside the walk at
+the places they occur, when a slice reaches them.
+
+**The divergence guard is ponyc's, verbatim.** At a nominal/nominal pair
+whose definitions already appear `SAME_DEF_LIMIT = 4` times on the stack
+with drifting arguments: bail `false` before pushing a frame, OR poison
+into every ancestor, cache nothing. **The bail is silent on the deciding
+path** — a bail inside one branch of a union that succeeds another way
+must not surface, or an accepted program takes a false-rejection point.
+The explain re-run reaches the same bail deterministically (nothing was
+memoized) and surfaces ponyc's wording there. **The guard runs before
+the memo lookup**: a durable hit must not pre-empt a bail, or the verdict
+depends on what ran earlier in the process — ponyc's per-call cache clear
+is what makes its guard deterministic, and this design deletes the clear,
+so the ordering carries the burden instead. The warm-versus-cold pair is
+a required unit test beside the promotion counterexample. Same rule, same
+constant, same `pony_check`-refuted K=2 history. (`Ty.depth` is the
+*input* bound at lowering; it is not the divergence guard.)
+
+**Open decision (Red): guard-versus-shortcut divergence.** The reflexive
+shortcut and the same-def guard compose into a divergence ponyc does not
+have: on a generic interface nested past the guard's limit, ponyc's
+deciding frame is a *reflexive* pair and it bails `false` (probe-verified
+against 0.69.1, ponyc's own #1216 wording), while this design's shortcut
+answers that same canonical pair `true` before any frame is pushed — so
+the checker accepts programs ponyc rejects. The shortcut's answer is the
+semantically correct one; ponyc's is the conservative bail it documents
+as issue #1216. The options are bug-compatibility (refuse the shortcut on
+guard-eligible shapes and bail as ponyc does) or correctness with the
+divergence documented and the corpus cost measured. How often the corpus
+exercises the class is *unverified*.
+
+**The reflexive shortcut** answers `sub is sup` as `true` before the
+memo, ported from the working PoC (`subtype.rs:1251-1330`) in its
+original allowlist form: the shortcut applies only to variants whose
+capabilities are syntactically decisive — a `Nominal`, `UnionTy`,
+`IsectTy`, `TupleTy` or `LambdaTy` with no generic capability (`#read`,
+`#send`, `#share`, `#alias`, `#any`) anywhere inside it, recursively —
+and everything else is refused: `TypeParamRef`, `AliasRef`, `Arrow`,
+`ErrorTy` (fail-closed), and the leaf variants, which is the PoC's
+catch-all refusal. The rule is deliberately mode-blind, which is
+conservative in every mode. Its interaction with the divergence guard is
+the open decision above.
+
+### Modes
+
+Distinct public entry points (`subtype`, `eqtype`, `constraint_ok`, ...)
+over one internal function taking a closed `SubMode` union that is part
+of the memo key — ponyc's own boundary (five public functions over one
+`check_cap_t` that sits in its cache key).
+
+## Diagnostics
+
+Value-returning queries carry their diagnostics as a field of the result.
+
+For subtyping: **one function with an optional reason sink**, `reasons:
+(ErrorFrame | None) = None` — ponyc's literal shape. With `None`, the
+memo is consulted and fed; with a frame, lookup and insertion are both
+skipped (a hit would short-circuit the recursion that writes the frames).
+Explaining is re-running the same function with a sink after a memoized
+`false`, once per reported error. There is no agreement invariant because
+there are not two bodies to drift. If a rejection's re-run attaches no
+reason, the checker still prints the pair, the mode, and a generic line —
+failure is never silence — and the corpus explain mode counts it as a
+defect.
+
+**The checker exposes a read-only counters surface** — settled inserts,
+memo hits, discards of under-assumption results, poisons, reflexive
+short-circuits, and cyclic tables produced — so the soundness-critical
+machinery is asserted on directly by unit tests instead of only through
+end-to-end verdicts, the memo-content claims ("poisoned never cached",
+"reflexive makes no entry") each become a one-line assertion, and a
+`provides_acyclic`/`_computing` disagreement is visible as a cyclic count
+with no matching diagnostic.
+
+**A public accessor resolves a name to its canonical type** —
+`entity_type(EntityPath)` and `field_type(MemberPath)` — which is how a
+test acquires `Ty` operands from a string-literal workspace (the existing
+fake-builtin idiom, verified present in the current suite) and how the
+explain path names what it is talking about.
+
+### The oracles
+
+Named, because a verdict corpus alone shipped ponyq 99 wrong rejections
+it never noticed:
+
+1. **The corpus**, floor-relative, per case — the headline gate.
+   Diagnostics render in package and source-position order. In explain
+   mode, ponyc's expected message — which `extract_corpus.py` already
+   stores in the manifest — is substring-matched against *all* of the
+   case's emitted messages rather than only the first, since ponyc's own
+   first message depends on its pass ordering, which this design does not
+   reproduce. A case whose expected message matches none emitted is the
+   rejects-for-the-wrong-reason defect a binary verdict cannot see.
+2. **`tools/sig_agreement`**: `method_table` printed per entity and
+   diffed against `ponyc --pass=traits --astpackage` over the standard
+   library. The probe has been run: the dump is on stderr, is total over
+   the stdlib, and contains the synthesised members — but it expands
+   aliases, includes bodies, synthesises members beyond this design's
+   list, and uses positional package ids, so **the normalization is part
+   of the oracle's definition**: aliases expanded at print time on our
+   side, ponyc's side stripped to signature fields, package ids mapped
+   through the loader, and any unexpected ponyc-side synthesis reported
+   as a finding rather than waved through.
+3. **`--paranoid`**: every memoized subtype answer recomputed via the
+   reason-sink path — which skips the memo by construction — **twice**,
+   so a mismatch classifies: cold differing from cold is walk
+   nondeterminism; cold stable but differing from the memo is unsound
+   classification. A recompute that consulted the memo would reproduce
+   its errors and be worthless. CI-only; also run across case boundaries
+   in batch to gate the partition rule below.
+4. **The existing gates**: the standard library checks clean; the whole
+   ponyc tree parses.
+
+## The first slice
+
+Three slices, each a working binary over the full harness, each with its
+ceiling measured by a proxy that matches its own cut. The first
+implementation act is rebuilding the instrument (divergence 5) and
+re-measuring; every number below is provisional until then. If the
+re-measured total collapses toward the signature layer's 3.5 points, the
+slice question reopens to Red — it was his call once already (the earlier
+tension: whether signatures is the right first slice at its corrected,
+much lower ceiling).
+
+**Slice 0 — driver, loader, parse and syntax legality.** The binary; the
+`--batch` contract verbatim ponyq's, so the harness scripts run
+unmodified (`<dir>\t(ok|fail|load-failed)`, exit 0 for the batch; single
+mode exits 0 clean / 255 with ponyc-shaped errors off `LineIndex(Utf8)`;
+internal failure exits 1, distinct from both verdicts — a crash must
+never manufacture one); the loader; the parser depth guard (divergence
+4); and ponyc's `syntax`-pass legality rules — body-free shape checks
+over the existing lossless tree. Proxy: cases whose earliest erroring
+pass is `syntax`: 37–43 rejections, +3.2–3.7 points (*unverified*; the
+per-case audit in this slice settles the range, and whether the tolerant
+parser converts facts to these verdicts is the open caveat this slice
+closes).
+
+**Slice 1 — name errors.** `pony_bind` wired to the loader: unresolved
+names and unresolved `use`s as diagnostics (the `fail` side of the
+verdict split — nothing here scores as `load-failed`, so no case is
+double-booked). Proxy: earliest pass in `sugar`/`scope`/`import`/`name`:
+≤15 rejections, ≤+1.3 (*unverified* how many are body-free).
+
+**Slice 2 — signatures.** The IR, lowering with canonicalisation, the
+capability algebra (pure table ports), `method_table` with synthesis,
+**the type-alias recursion legality check** (ponyc's dedicated pass;
+ponyq stack-overflowed until it ported the rule; 3 corpus rejections and
+a crash risk without it), reification as a plain function, the subtype
+evaluator, provides and constraint checking under the phase rule. Proxy:
+earliest pass in `typealias_recursion`/`flatten`/`traits`: 41 rejections,
++3.5. The ~26 signature-level checks ponyc reports from its `expr` pass
+are unverified upside, excluded from every ceiling until a per-case audit
+separates them from body machinery.
+
+Cumulative honest ceiling: roughly 93–99 rejections, ~+8 points over the
+46.1% floor, assuming zero false rejections — and every false rejection
+costs a point, which is what put ponyq's 99 nearly on the floor. The
+per-slice gates (stdlib clean, tree parses, `sig_agreement` empty after
+normalization) are the false-rejection defence.
+
+Bodies cannot precede signatures — `body_types` reads signatures and no
+other body (`FINDINGS.md`) — but nothing says signatures must precede the
+driver, and the brief's own measure (rejections over the floor at every
+stage) points driver-first.
+
+## Granularity
+
+**Name-path keying: now, as the identity scheme.** Every query is keyed
+by `EntityPath`/`MemberPath`; no `Ty`, signature, or memo mentions a node
+index. This is the half of the granularity fix that must precede the
+layer, costs nothing new, and means ponyq's three measured
+positional-identity costs never arise — which `tools/memo_pays` showed is
+what reverses `FINDINGS.md`'s batch-versus-server fork arithmetic.
+
+**Item-relative spans: deferred to the LSP brief.** Every number for them
+is an edit-workload number and this binary performs no edits.
+
+**`DocumentFacts` split: its own change** (divergence 7).
+
+## The memo architecture, and the batch run
+
+- **Entity-level queries** (`entity_sig`, `method_table`,
+  `entity_diagnostics`, `package_diagnostics`) run on the **shared
+  engine** — checker and binder on one graph (divergence 1), caller-held
+  typed tables, `pony_bind`'s exact pattern. The checker's `run` forwards
+  binder-owned query ids to the binder (one `QueryId` space, two runners;
+  the forwarding is part of the design, stated because nothing in a batch
+  run would otherwise exercise it). Resolution mappings
+  (`set_package_path`, `set_builtin`) are load-time inputs that do not
+  change within a run; making them engine-revisioned inputs, and giving
+  the subtype memo per-key dependency registration instead of the
+  partition-and-drop rule, are the two recorded LSP-era extensions.
+- **The batch run is one process over one shared database** — ponyq's own
+  shape, so the standard library is parsed and checked once across ~1,400
+  cases. **This means the revision advances on every case load**, so the
+  memo rules are scoped by what a revision change can actually invalidate:
+  settled subtype entries and entity tables whose keys mention only
+  packages under the search roots (decidable at key construction, since
+  an `EntityPath` carries its package) survive across cases; entries
+  mentioning a case package are dropped when that case's inputs change.
+  The invariant this rests on: case directories are disjoint from each
+  other and from the search roots, and within one run a canonical
+  directory path outside the case set maps to immutable content. The cross-case
+  `--paranoid` sweep is the empirical gate on it, and a corpus wall-clock
+  number joins the slice-0 gate.
+- **The engine choice is forced, not preferred**: the alternative
+  (checker-private flat maps stamped with the binder revision, flushed
+  whole on mismatch) would flush builtin's tables ~1,400 times per corpus
+  run. The shared engine with the partition rule is what makes the batch
+  instrument affordable.
+- **The subtype evaluator's memo** is a flat mutable map (measured
+  cheaper than the persistent alternative on both axes for this
+  workload), keyed on canonical `Ty` instances plus `SubMode`, and
+  partitioned by the same root-stable rule.
+- **Plain functions**: `lower_type`, the capability algebra, `reify` —
+  each measured or reasoned at R = 1, where a memo cannot pay.
+- **One checking actor.** Multi-actor checking is a recorded extension;
+  structural identity keeps it possible (agreement by shared resolved
+  input), and ponyq's measurements (2.25x recompute sharing nothing, 19%
+  for removing sharing entirely) say parallelism is not where the next
+  win is.
+
+## Resource bounds
+
+The driver owns "this input is too large", in three places, each
+surfacing an ordinary diagnostic rather than a crash: a per-file byte cap
+at load; the parser depth guard (divergence 4); and the `Ty` depth bound
+at lowering, which also bounds every recursive walk over types. Every
+growable table then inherits a ceiling from admitted input: the dedup map
+and subtype memo are bounded by the distinct types constructible from
+capped sources, and `Engine._entries` — which grows one entry per
+registered query and never shrinks — by the file, package and entity
+counts the byte cap and the walk admit. No eviction policy exists or is
+needed for a batch run; the per-case drop rule bounds cross-case
+accretion in batch.
+
+## Key decisions, and what settled them
+
+**Identity: structural-decides over digest-decides.** Two of three design
+personas independently chose the `EntityPath` precedent; the repaired
+digest alternative needed a hash-function approval, an avalanche gate, an
+abort path, and a forced-collision test, and still carried a multi-actor
+residual. Structural-decides needs none of those. Evaluation then
+verified the surviving claim at every use site: no path from a hash
+collision to a wrong verdict.
+
+**Cycles: discard-only over park-and-promote.** The promotion mechanism
+was adopted in an earlier draft on the claim it was ponyc's argument
+ported; evaluation showed ponyc has no promotion to port and built a
+constructed multi-entity program where promotion durably memoizes a wrong,
+order-dependent accept. Discard-only is ponyc-faithful, dissolves the
+parked-entry read-path question entirely, and its re-derivation cost is
+watched by a counter with ponyc's conditional-read gates as the measured
+fallback.
+
+**The engine: shared, because batch forces it.** An earlier draft
+presented this as a near-free preference for LSP readiness; the batch
+analysis (one process, ~1,400 case loads) showed the alternative flushes
+the standard library's tables per case. The LSP benefit is real but
+secondary.
+
+**The divergence guard: ponyc's verbatim.** A structural-depth bound on
+the key was considered (memoizable), rejected because poison-and-never-
+cache satisfies the memo constraint without introducing a documented
+disagreement class with ponyc.
+
+**The explainer: one body.** A two-path design with a tested agreement
+invariant was considered and rejected: the invariant tested non-emptiness,
+not agreement, and one body cannot drift from itself.
+
+## Unverified claims (complete list)
+
+1. The slice arithmetic sums audited per-pass splits without one
+   re-measurement on the rebuilt instrument; re-measuring is the first
+   implementation act, and a collapse toward +3.5 reopens the slice
+   question to Red.
+2. That discard-only's in-cycle re-derivation is affordable — the counter
+   at the stdlib gate answers it; ponyc's conditional-read gates are the
+   fallback.
+3. The promotion counterexample program and the four-interface
+   walk-order case both become unit tests before the settled memo is
+   trusted; the classification claims are "ponyc's argument, ported with
+   its conditions" until then.
+4. The composed construction-path cost (dedup probe with custom hash on
+   the real map shape) — one benchmark variant, mostly existing code.
+5. How many of the ≤15 name-level rejections are body-free.
+6. How often the corpus exercises the guard-versus-shortcut divergence
+   class (open decision above), and the work budget's value — both set
+   from measurement at the slice-2 gate.
+7. The cross-case memo partition's invariant (root-package content
+   immutable within a run) — gated empirically by the cross-case
+   `--paranoid` sweep.
+8. The engine's recursion depth over a real semantic dependency graph — a
+   max-depth counter in the trust harness is the slice-2 gate.
+9. The ~26 `expr`-pass signature checks' separability from body
+   machinery.
+
+## Kept from the first candidate
+
+The IR shape and its four decisions; the sugar split and the `Less is
+Equatable[Compare]` test; the 46.1% floor framing; diagnostics as result
+fields; `ErrorTy` failing closed; the `--batch` CLI contract; driver exit
+codes; the reason-sink explainer direction. Dropped across the two
+evaluation rounds: digest-as-identity and its collision analysis; the
+parallel-ceiling justification; the two-path explainer; park-and-promote;
+the structural-depth divergence guard; the unpartitioned batch memo; and
+the original 54.3%/+8.2 ceiling, which was measured with a proxy that did
+not match the slice.

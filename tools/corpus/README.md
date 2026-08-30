@@ -43,9 +43,11 @@ Cases whose own suite stops before `traits` are excluded. ponyc never runs
 those passes for them, so the comparison would be against something ponyc does
 not do.
 
-The result is in `SEMANTIC_DESIGN.md` question 5: a ceiling of 54.3% against a
-floor of 46.1%, so the rejections a signature-only checker can reach are worth
-about eight points.
+The headline numbers here — a 54.3% ceiling against a 46.1% floor — are
+what this script computes at its `--pass=traits` cut. That cut also runs ponyc
+passes a signature-only checker does not contain, so it overstates such a
+checker's ceiling; `SEMANTIC_DESIGN.md`'s first-slice section carries the
+per-slice numbers derived from the per-case split.
 
 The three cases ponyc accepts but errors on at `traits` are the measurement's
 own noise. Each is a program whose suite targets an earlier pass, so running
