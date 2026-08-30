@@ -11,7 +11,7 @@ BRIDGE     := $(LIBS)/pony_compiler
 PATHS      := --path $(BRIDGE) --path $(LIBS) --path $(PONYC_LIB)
 
 .PHONY: all test syntax-test lsp lsp-test tools corpus mutants bind bench \
-  types clean FORCE
+  types corpus-cases pass-reach clean FORCE
 
 all: test
 
@@ -99,6 +99,17 @@ bench:
 types:
 	ponyc -b type-hash -o build tools/type_hash
 	./build/type-hash
+
+# ponyc's own unit tests as a corpus of accept/reject verdicts, and what a
+# checker that stops before method bodies can reach. See SEMANTIC_DESIGN.md
+# question 5. CORPUS_DIR keeps the extracted cases between runs.
+CORPUS_CASES ?= build/corpus_cases
+
+corpus-cases:
+	python3 tools/corpus/extract_corpus.py $(PONYC_ROOT) $(CORPUS_CASES)
+
+pass-reach: corpus-cases
+	python3 tools/corpus/pass_reach.py $(CORPUS_CASES)
 
 clean:
 	rm -rf build

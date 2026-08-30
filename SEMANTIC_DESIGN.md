@@ -29,10 +29,11 @@ different tuning of the same one.
 constructor. Question 6 proposes splitting it, which changes a public
 constructor in `pony_analysis`.
 
-**The first slice cannot move the corpus number much.** The brief says a slice
-that cannot move the number is the wrong slice. Signatures-without-bodies
-reaches an estimated 9% of ponyc's test corpus at best. This is the sharpest
-disagreement with the brief and question 5 argues it out.
+**The brief's "number to beat" is the wrong measure.** It names ponyq's 49.5%
+agreement as the target. Agreement counts the cases ponyc *accepts*, and a
+checker that finds nothing wrong agrees with all of them, so the floor is
+46.1% before a single rule is written. Question 5 has the measurement. What a
+slice is worth is its distance above that floor, not its agreement.
 
 ## What was measured
 
@@ -306,33 +307,51 @@ list claims. Every one of those is a real ponyc error and none needs a body.
 It cannot report anything inside a method body, which is where most of a
 compiler's errors live.
 
-### What agreement it should reach, and the problem with that
+### What agreement it reaches, measured
 
-`FINDINGS.md`'s per-suite table is the only basis for an estimate. The suites
-a signature-only checker can reach at all are `traits` (32 cases),
-`type_check_subtype` (41), `recursive_type_alias` (35), `matchtype` (9) and
-`type_check_bind` (1) — 118 of 1,288, or **about 9%**. The two largest suites,
-`verify` at 280 cases and `badpony` at 180, are almost entirely body-level.
+`tools/corpus` is ponyq's harness, ported. `extract_corpus.py` writes each
+`TEST_F` in ponyc's `test/libponyc/*.cc` out as a package with the verdict its
+macro asserts — 1,416 cases, 183 skipped as not a plain verdict on one source.
 
-So the honest answer to the brief's question is: **this slice tops out around
-9-15% agreement, against ponyq's 49.5%.** It moves the number off zero and
-then stops.
+`pass_reach.py` settles what this slice can reach without having to build it.
+Everything the slice does happens at or before ponyc's `traits` pass, and body
+checking is `expr`, so running each case with ponyc stopped after `traits`
+says which rejections need a body and which do not.
 
-That is a real objection to the cut, and I do not think it defeats it, for
-three reasons. The 9% is not the point of the slice — running the corpus at
-all is, and the harness, the CLI contract, the exit codes and the verdict
-comparison have to exist before any number can move. Bodies cannot be built
-first: `body_types` reads signatures and `FINDINGS.md`'s central claim is that
-it reads nothing else, so signatures are the layer with no dependency on the
-one above. And the alternative cut — a thin vertical slice through one simple
-body form — buys a slightly better number by building a fragment of `expr`
-that must then be finished anyway, with no natural boundary to stop at.
+Over the 1,174 cases whose own suite runs `traits` at all — 242 stop earlier,
+and for those ponyc never runs the passes being compared, so they are
+excluded:
 
-**But this is a judgement about what a first slice is for, and it is yours to
-make.** If the number moving is the point, the slice has to include bodies and
-is three times the size. If proving the architecture end to end is the point,
-signatures do it at a third of the cost. I recommend signatures and I am
-recording the objection rather than resolving it.
+| | cases |
+|---|---|
+| ponyc accepts, nothing wrong by `traits` | 538 |
+| ponyc accepts, error by `traits` | 3 |
+| ponyc rejects, error by `traits` — reachable without bodies | 99 |
+| ponyc rejects, nothing wrong by `traits` — needs a body | 534 |
+
+**The ceiling is 637 of 1,174, or 54.3%**, assuming the slice makes no false
+rejection. My earlier estimate of 9% was wrong, and wrong in method rather
+than in magnitude: it counted suites a signature checker could contribute to
+and forgot that agreement counts the accepted cases too.
+
+**Accepting every program scores 46.1%.** That is the floor any agreement
+figure sits on, and it is what makes the brief's framing misleading. The
+slice's 99 reachable rejections are worth **8.2 points** over a checker that
+does nothing at all.
+
+It reframes ponyq too. Its 49.5% is about three points above the same floor:
+if its corpus had a similar accept rate, its 99 wrong rejections very nearly
+cancelled its correct ones, and 12.9k lines bought a small margin over
+accepting everything. That arithmetic assumes ponyq's accept rate matches this
+corpus's, which I have not verified.
+
+So the slice is worth building, on a better argument than I had: its ceiling
+is above what ponyq measured, not far below it. Two reasons stand independent
+of the number. Bodies cannot be built first — `body_types` reads signatures
+and `FINDINGS.md`'s central claim is that it reads nothing else, so signatures
+are the only layer with no dependency above it. And the harness, the CLI
+contract and the exit codes have to exist before any number can move at all;
+they now do.
 
 ## Question 6 — granularity
 
@@ -390,11 +409,10 @@ says how deep a chain gets. A signature layer over the standard library is the
 first thing that will find out, and a stack overflow is not a graceful
 failure.
 
-**3. What agreement the first slice actually reaches.** The 9% is derived from
-`FINDINGS.md`'s per-suite table by judging which suites are body-level. I did
-not run anything. The estimate could be wrong in either direction, and the
-harness port would settle it in an afternoon — which is an argument for
-porting the harness before committing to the slice.
+**3. Whether the ceiling is reachable.** 54.3% assumes the slice makes no
+false rejection, and ponyq made 99. Every false rejection costs a point
+directly, so a slice that is merely careless lands below the 46.1% floor. The
+ceiling is what the cut permits, not what an implementation will get.
 
 **4. The divergence-guard disagreement.** Bounding on structural depth rather
 than ponyc's frame count will disagree on some inputs. `FINDINGS.md` says the
