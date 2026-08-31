@@ -564,17 +564,21 @@ is an edit-workload number and this binary performs no edits.
 
 ## Resource bounds
 
-The driver owns "this input is too large", in three places, each
-surfacing an ordinary diagnostic rather than a crash: a per-file byte cap
-at load; the parser depth guard (divergence 4); and the `Ty` depth bound
-at lowering, which also bounds every recursive walk over types. Every
-growable table then inherits a ceiling from admitted input: the dedup map
-and subtype memo are bounded by the distinct types constructible from
-capped sources, and `Engine._entries` — which grows one entry per
-registered query and never shrinks — by the file, package and entity
-counts the byte cap and the walk admit. No eviction policy exists or is
-needed for a batch run; the per-case drop rule bounds cross-case
-accretion in batch.
+The driver owns "this input is too large", in two places, each
+surfacing an ordinary diagnostic rather than a crash: the parser depth
+guard (divergence 4), and the `Ty` depth bound at lowering, which also
+bounds every recursive walk over types. There is no per-file byte cap —
+one was built and dropped, decided by Red, after it rejected real
+generated sources ponyc compiles (`tz`'s 2.75 MB zones file among
+them). The dedup map and subtype memo are therefore bounded by the
+distinct types constructible from the sources given, not from capped
+ones, and `Engine._entries` — which grows one entry per registered
+query and never shrinks — by the file, package and entity counts the
+walk admits. A checker is run over source someone was going to compile
+anyway; the depth and `Ty` bounds exist because those inputs crash
+rather than merely cost. No eviction policy exists or is needed for a
+batch run; the per-case drop rule bounds cross-case accretion in
+batch.
 
 ## Key decisions, and what settled them
 

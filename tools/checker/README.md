@@ -1,10 +1,9 @@
 # The batch checker
 
 Slice 0 of `SEMANTIC_DESIGN.md`: a binary that loads a package and
-everything it `use`s, and rejects on parse diagnostics, over-deep or
-over-large sources, `use`-level legality and resolution errors, and the
-ported subset of ponyc's syntax-pass legality rules, in ponyc's own
-wordings.
+everything it `use`s, and rejects on parse diagnostics, over-deep
+sources, `use`-level legality and resolution errors, and the ported
+subset of ponyc's syntax-pass legality rules, in ponyc's own wordings.
 
     checker <package-dir> [--path=ROOT ...]
     checker --batch=<cases-file> [--path=ROOT ...]

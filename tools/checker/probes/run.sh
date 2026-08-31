@@ -25,18 +25,6 @@ if [ "$dirs" != "$rows" ]; then
   exit 1
 fi
 
-# The byte cap, probed with a generated file so the repository does not
-# carry a megabyte of padding.
-mkdir "$tmp/too_large"
-python3 -c "import sys; sys.stdout.write('actor Main\n  new create(env: Env) => None\n' + '// pad\n' * 160_000)" \
-  > "$tmp/too_large/main.pony"
-code=0
-"$checker" "$tmp/too_large" --path="$roots" >/dev/null 2>"$tmp/err" || code=$?
-if [ "$code" != 255 ] || ! grep -q "byte limit" "$tmp/err"; then
-  echo "PROBE FAIL: too_large expected a byte-limit rejection, got exit $code"
-  fails=$((fails+1))
-fi
-
 while IFS="	" read -r name want substring; do
   code=0
   "$checker" "$here/$name" --path="$roots" >/dev/null 2>"$tmp/err" || code=$?

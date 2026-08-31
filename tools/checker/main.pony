@@ -13,9 +13,9 @@ actor Main
   an internal failure both exit 1, distinct from both verdicts, so a
   crash is never read as one.
 
-  At this slice a rejection means a parse diagnostic, an over-deep or
-  over-large source, a `use`-level legality or resolution error, or one
-  of the ported syntax-pass legality rules. When any file fails to
+  At this slice a rejection means a parse diagnostic, an over-deep
+  source, a `use`-level legality or resolution error, or one of the
+  ported syntax-pass legality rules. When any file fails to
   parse, only the parse diagnostics report, as in ponyc, whose later
   passes do not run after a parse error.
 

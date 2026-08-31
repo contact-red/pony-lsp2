@@ -28,17 +28,6 @@ class val EmptyPackage
   fun string(): String val =>
     "no Pony source files in package '" + name + "'"
 
-primitive _MaxFileBytes
-  """
-  The largest source file the loader will read: the design's per-file
-  byte cap, surfaced as a diagnostic. Roughly ten times the largest
-  file in the ponyc tree. An over-large file is a rejection of its
-  package, where an unreadable one stops the whole load: the first is a
-  judgement about the source, the second means the checker never saw
-  it.
-  """
-  fun apply(): USize => 1_048_576
-
 type LoadError is (UnloadableRoot | UnreadableFile | EmptyPackage)
   """
   What stops a load before checking can start. An unresolvable `use`
@@ -98,21 +87,6 @@ class val FileData
     tree = Parse(source')
     uses = ScanUses(tree)
     legality = CheckLegality(path', source', tree)
-
-  new val too_large(path': String val) =>
-    """
-    A file past the byte cap: never read, one diagnostic.
-    """
-    path = path'
-    source = ""
-    tree = Parse("")
-    uses = ScanUses(tree)
-    legality =
-      recover val
-        [ CheckDiagnostic(path', 0, 0,
-            "this file is larger than the checker's " +
-              _MaxFileBytes().string() + " byte limit") ]
-      end
 
 class val PackageData
   """
@@ -354,11 +328,6 @@ class Loader
       let source =
         try
           let f = OpenFile(FilePath(_auth, path)) as File
-          if f.size() > _MaxFileBytes() then
-            f.dispose()
-            files.push(FileData.too_large(path))
-            continue
-          end
           let text: String val =
             recover val String.from_array(f.read(f.size())) end
           f.dispose()
