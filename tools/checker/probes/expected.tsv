@@ -13,3 +13,4 @@ constraint_typeargs_ok	ok
 string_array_semi_ok	ok
 consume_grouped_tuple_ok	ok
 compile_error_docstring	fail
+consume_grouped_expr_fail	fail
