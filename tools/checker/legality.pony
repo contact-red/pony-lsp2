@@ -34,9 +34,13 @@ primitive CheckLegality
       // what a constraint may hold can ask "is this element inside one"
       // with a scan. Two sets, because ponyc's tuple rule applies only to
       // type-parameter constraints while its arrow rule also covers
-      // iftype constraints.
+      // iftype constraints. Type-argument ranges are collected too:
+      // ponyc clears the constraint frame on entering type arguments, so
+      // an arrow or tuple inside a constraint's type arguments is legal,
+      // and what decides is the innermost enclosing marker.
       let tp_constraints = _ConstraintRanges(tree, false)
       let constraints = _ConstraintRanges(tree, true)
+      let typeargs = _TypeArgRanges(tree)
 
       // The enclosing elements of the one being visited, maintained from
       // the walk's depths, so a rule that depends on where a construct
@@ -79,18 +83,18 @@ primitive CheckLegality
         elseif kind is TkEllipsis then
           _ellipsis(file, tree, element, stack, at, width, out)
         elseif kind is NdViewpoint then
-          if _InRanges(constraints, element) then
+          if _InConstraint(constraints, typeargs, element) then
             _diag(file, element, at, width, out,
               "arrow types can't be used as type constraints")
           end
         elseif kind is NdTupleType then
-          if _InRanges(tp_constraints, element) then
+          if _InConstraint(tp_constraints, typeargs, element) then
             _diag(file, element, at, width, out,
               "tuple types can't be used as type constraints")
           end
         elseif kind is NdNominal then
           _gencap_outside_constraint(
-            file, tree, element, constraints, at, width, out)
+            file, tree, element, constraints, typeargs, at, width, out)
         elseif kind is NdConsume then
           _consume(file, tree, element, at, width, out)
         elseif kind is NdAsOp then
@@ -319,11 +323,9 @@ primitive CheckLegality
     let grandparent_kind =
       try stack(stack.size() - 2)?._2 else NdModule end
 
-    var statements: USize = 0
     var prev_stmt: (USize | None) = None
     var semi_since_prev = false
     var newline_since_prev = false
-    var first_stmt: (USize | None) = None
 
     try
       for child in tree.children(seq)? do
@@ -376,10 +378,6 @@ primitive CheckLegality
           end
         else
           if not tree.is_leaf(child)? then
-            statements = statements + 1
-            if first_stmt is None then
-              first_stmt = child
-            end
             match prev_stmt
             | let _: USize =>
               if (not semi_since_prev) and (not newline_since_prev) then
@@ -396,18 +394,10 @@ primitive CheckLegality
               _jump(file, tree, child, seq, parent_kind, grandparent_kind,
                 at, width, out)
             end
-          elseif kind is TkString then
-            // A leading docstring is not a statement for the
-            // entire-body rules, but anything else leafy is.
-            if first_stmt isnt None then
-              statements = statements + 1
-              prev_stmt = child
-            end
           else
-            statements = statements + 1
-            if first_stmt is None then
-              first_stmt = child
-            end
+            // A leaf statement -- a literal, a docstring string, a bare
+            // reference -- follows the same separation rules as a node.
+            // The docstring's only specialness is _sole_statement's.
             match prev_stmt
             | let _: USize =>
               if (not semi_since_prev) and (not newline_since_prev) then
@@ -881,11 +871,12 @@ primitive CheckLegality
     tree: SyntaxTree val,
     nominal: USize,
     constraints: Array[(USize, USize)] box,
+    typeargs: Array[(USize, USize)] box,
     at: Array[USize] box,
     width: Array[USize] box,
     out: Array[CheckDiag] ref)
   =>
-    if _InRanges(constraints, nominal) then
+    if _InConstraint(constraints, typeargs, nominal) then
       return
     end
     try
@@ -919,7 +910,7 @@ primitive CheckLegality
           for part in tree.children(child)? do
             match tree.kind(part)?
             | TkWhitespace | TkLineComment | TkNestedComment => None
-            | NdCall | NdGrouped | NdTuple =>
+            | NdCall | NdGrouped =>
               _diag(file, child, at, width, out,
                 "Consume expressions must specify an identifier or field")
               return
@@ -950,7 +941,9 @@ primitive CheckLegality
         | TkWhitespace | TkLineComment | TkNestedComment => None
         | TkInt | TkFloat =>
           _diag(file, child, at, width, out,
-            "Cannot cast uninferred numeric literal")
+            "Cannot cast uninferred numeric literal\n" +
+              "To give a numeric literal a specific type, use the " +
+              "constructor of that numeric type")
           return
         else
           return
@@ -1073,14 +1066,52 @@ primitive _MethodPerm
     end
 
 
-primitive _InRanges
-  fun apply(ranges: Array[(USize, USize)] box, element: USize): Bool =>
-    for (from, to) in ranges.values() do
+primitive _InConstraint
+  """
+  Whether an element sits in a constraint, the way ponyc's frame does:
+  the innermost enclosing marker decides, and entering type arguments
+  clears the constraint, so only a constraint range that is nearer than
+  every enclosing type-argument range counts.
+  """
+  fun apply(
+    constraints: Array[(USize, USize)] box,
+    typeargs: Array[(USize, USize)] box,
+    element: USize)
+    : Bool
+  =>
+    var best_constraint: USize = USize.max_value()
+    for (from, to) in constraints.values() do
       if (element >= from) and (element < to) then
-        return true
+        if (to - from) < best_constraint then
+          best_constraint = to - from
+        end
       end
     end
-    false
+    if best_constraint == USize.max_value() then
+      return false
+    end
+    for (from, to) in typeargs.values() do
+      if (element >= from) and (element < to) then
+        if (to - from) < best_constraint then
+          return false
+        end
+      end
+    end
+    true
+
+primitive _TypeArgRanges
+  fun apply(tree: SyntaxTree val): Array[(USize, USize)] val =>
+    recover val
+      let out = Array[(USize, USize)]
+      for (element, _, _, kind, _) in tree.walk() do
+        if kind is NdTypeArgs then
+          try
+            out.push((element, element + tree.subtree_size(element)?))
+          end
+        end
+      end
+      out
+    end
 
 primitive _ConstraintRanges
   """

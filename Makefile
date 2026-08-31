@@ -12,6 +12,7 @@ PATHS      := --path $(BRIDGE) --path $(LIBS) --path $(PONYC_LIB)
 
 .PHONY: all test syntax-test lsp lsp-test tools corpus mutants bind bench \
   types corpus-cases pass-reach memo-pays checker checker-probes \
+  checker-stdlib \
   checker-corpus \
   clean FORCE
 
@@ -126,6 +127,18 @@ checker:
 
 checker-probes: checker
 	tools/checker/probes/run.sh ./build/checker $(PONYC_ROOT)/packages
+
+# Every package in ponyc's standard library must check clean: the gate the
+# corpus cannot provide, because no corpus case uses a stdlib package
+# beyond builtin.
+checker-stdlib: checker
+	@fails=0; \
+	for d in $$(find $(PONYC_ROOT)/packages -name '*.pony' \
+	    -not -name '.*' | xargs -n1 dirname | sort -u); do \
+	  ./build/checker "$$d" --path=$(PONYC_ROOT)/packages \
+	    >/dev/null 2>&1 || { echo "STDLIB FAIL: $$d"; fails=1; }; \
+	done; \
+	[ $$fails -eq 0 ] && echo "stdlib: all packages clean"; exit $$fails
 
 checker-corpus: checker corpus-cases
 	@test -f $(CORPUS_CASES)/reach.tsv || \

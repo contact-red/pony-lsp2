@@ -8,6 +8,9 @@ primitive UseUnknown
   """A scheme ponyc's table does not have. An error there and here."""
 
 type UseScheme is (UsePackage | UseDirective | UseUnknown)
+  """
+  How a `use` locator's scheme classifies under ponyc's table.
+  """
 
 class val ScannedUse
   """

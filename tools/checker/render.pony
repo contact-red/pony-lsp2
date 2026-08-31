@@ -17,11 +17,15 @@ primitive RenderDiag
     out.append(": ")
     out.append(diag.message)
     out.push('\n')
-    out.append(_line_of(source, diag.offset))
+    let line_text = _line_of(source, diag.offset)
+    out.append(line_text)
     out.push('\n')
+    // The pad copies the source line's tabs, as ponyc does, so the
+    // caret lands under the column whatever the tab width.
     var i: USize = 0
     while i < character do
-      out.push(' ')
+      out.push(if (try line_text(i)? else ' ' end) == '\t' then '\t'
+      else ' ' end)
       i = i + 1
     end
     out.push('^')

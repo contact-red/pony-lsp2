@@ -21,8 +21,7 @@ primitive _RawSeq
       // diagnostic rather than a stack overflow; the region is consumed
       // whole and parsing resumes where it closes.
       p.error_and_recover(
-        "an expression nested no deeper than " + _MaxNesting().string() +
-          " levels",
+        "a less deeply nested expression",
         TokenSets.nesting_close())
       return p.ascend()
     end
@@ -177,8 +176,7 @@ primitive _Term
     // new sequence.
     if p.descend() then
       p.error_and_recover(
-        "an expression nested no deeper than " + _MaxNesting().string() +
-          " levels",
+        "a less deeply nested expression",
         TokenSets.nesting_close())
       return p.ascend()
     end
@@ -243,8 +241,7 @@ primitive _ParamPattern
       // or the funnel, so it carries its own descent.
       if p.descend() then
         p.error_and_recover(
-          "an expression nested no deeper than " + _MaxNesting().string() +
-            " levels",
+          "a less deeply nested expression",
           TokenSets.nesting_close())
         return p.ascend()
       end
