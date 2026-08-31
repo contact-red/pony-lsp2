@@ -11,3 +11,5 @@ guard_on_package_use	fail
 clean_minimal	ok
 constraint_typeargs_ok	ok
 string_array_semi_ok	ok
+consume_grouped_tuple_ok	ok
+compile_error_docstring	fail

@@ -472,7 +472,9 @@ primitive CheckLegality
       if not (parent_kind is NdMethod) then
         _diag(file, jump, at, width, out,
           "a compile intrinsic must be a method body")
-      elseif (value isnt None) or (not _sole_statement(tree, seq, jump)) then
+      elseif (value isnt None) or
+        (not _sole_statement(tree, seq, jump, true))
+      then
         _diag(file, jump, at, width, out,
           "a compile intrinsic must be the entire body")
       end
@@ -509,18 +511,23 @@ primitive CheckLegality
       if not reason_ok then
         _diag(file, jump, at, width, out,
           "a compile error must have a string literal reason for the error")
-      elseif not _sole_statement(tree, seq, jump) then
+      elseif not _sole_statement(tree, seq, jump, false) then
         _diag(file, jump, at, width, out,
           "a compile error must be the entire ifdef clause")
       end
     end
 
-  fun _sole_statement(tree: SyntaxTree val, seq: USize, stmt: USize)
+  fun _sole_statement(
+    tree: SyntaxTree val,
+    seq: USize,
+    stmt: USize,
+    allow_docstring: Bool)
     : Bool
   =>
     """
-    Whether `stmt` is the only statement its sequence holds, a leading
-    docstring aside.
+    Whether `stmt` is the only statement its sequence holds. A leading
+    docstring is excused only where ponyc excuses one -- before a compile
+    intrinsic, never before a compile error.
     """
     try
       var seen_docstring = false
@@ -528,7 +535,7 @@ primitive CheckLegality
         match tree.kind(child)?
         | TkWhitespace | TkLineComment | TkNestedComment | TkSemi => None
         | TkString =>
-          if seen_docstring or (child > stmt) then
+          if (not allow_docstring) or seen_docstring or (child > stmt) then
             return false
           end
           seen_docstring = true
@@ -910,9 +917,26 @@ primitive CheckLegality
           for part in tree.children(child)? do
             match tree.kind(part)?
             | TkWhitespace | TkLineComment | TkNestedComment => None
-            | NdCall | NdGrouped =>
+            | NdCall =>
               _diag(file, child, at, width, out,
                 "Consume expressions must specify an identifier or field")
+              return
+            | NdGrouped =>
+              // ponyc rejects a parenthesised expression left of the dot
+              // but accepts a tuple, and this tree parses a tuple as a
+              // group wrapping one, so the group's content decides.
+              for inner in tree.children(part)? do
+                match tree.kind(inner)?
+                | TkWhitespace | TkLineComment | TkNestedComment
+                | TkLparen | TkLparenNew => None
+                | NdTuple => return
+                else
+                  _diag(file, child, at, width, out,
+                    "Consume expressions must specify an identifier or " +
+                      "field")
+                  return
+                end
+              end
               return
             else
               return
