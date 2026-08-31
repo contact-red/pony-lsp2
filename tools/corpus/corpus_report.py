@@ -20,10 +20,19 @@ def main():
         return 1
 
     only = None
+    limited = set()
 
     for f in flags:
         if f.startswith("--suites="):
             only = set(f.split("=", 1)[1].split(","))
+        if f.startswith("--reach="):
+            # reach.tsv marks accepts that full ponyc rejects; a checker
+            # rejecting one of those agrees with ponyc, not with the
+            # case's pass-limited contract, so the expected verdict flips.
+            for line in open(f.split("=", 1)[1], encoding="utf8"):
+                parts = line.rstrip("\n").split("\t")
+                if len(parts) >= 5 and parts[4] == "limited":
+                    limited.add((parts[0], parts[1]))
 
     verdicts = {}
 
@@ -50,6 +59,9 @@ def main():
         if got is None:
             missing.append((suite, test))
             continue
+
+        if (suite, test) in limited:
+            expect = "reject"
 
         ours = "accept" if got == "ok" else "reject"
         by_suite[suite][1] += 1

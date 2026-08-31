@@ -94,7 +94,14 @@ def main():
                 if errs:
                     invalid.append((suite, test, "accept errors at " + target))
                     continue
-                records.append((suite, test, expect, target, "-", "-"))
+                # An accept is asserted only through its own target pass. A
+                # full checker sees the whole program, so record what full
+                # ponyc says as well: a "limited" accept is one full ponyc
+                # rejects, and a checker agreeing with full ponyc there is
+                # not wrong.
+                full_errs, _ = run(case, "ir", out_dir)
+                full = "limited" if full_errs else "-"
+                records.append((suite, test, expect, target, full, "-"))
             else:
                 earliest = None
                 guard = "-"
@@ -125,6 +132,7 @@ def main():
             f.write("\t".join(row) + "\n")
 
     accepts = sum(1 for r in records if r[2] == "accept")
+    limited = sum(1 for r in records if r[4] == "limited")
     rejects = [r for r in records if r[2] == "reject"]
     universe = len(records)
     s0 = sum(1 for r in rejects if r[4] in SLICE0)
@@ -143,6 +151,7 @@ def main():
     print()
     print(f"floor -- accepts, agreed with by rejecting nothing: "
           f"{accepts}/{universe} = {pts(accepts):.1f}%")
+    print(f"of which pass-limited (full ponyc rejects): {limited}")
     print(f"slice 0 (parse, syntax):              "
           f"{s0}  (+{pts(s0):.1f} points)")
     print(f"slice 1 (sugar, scope, import, name): "
