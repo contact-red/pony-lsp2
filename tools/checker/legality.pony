@@ -657,7 +657,7 @@ primitive CheckLegality
     width: Array[USize] box,
     out: Array[CheckDiagnostic] ref)
   =>
-    var ent: USize = 0
+    var found: (_EntityKind | None) = None
     var name: String val = ""
     var name_i: (USize | None) = None
     var c_api: (USize | None) = None
@@ -669,13 +669,13 @@ primitive CheckLegality
     try
       for child in tree.children(element)? do
         match tree.kind(child)?
-        | TkActor => ent = 0
-        | TkClass => ent = 1
-        | TkStruct => ent = 2
-        | TkPrimitive => ent = 3
-        | TkTrait => ent = 4
-        | TkInterface => ent = 5
-        | TkType => ent = 6
+        | TkActor => found = _Actor
+        | TkClass => found = _Class
+        | TkStruct => found = _Struct
+        | TkPrimitive => found = _Primitive
+        | TkTrait => found = _Trait
+        | TkInterface => found = _Interface
+        | TkType => found = _TypeAlias
         | TkAt => c_api = child
         | TkIso | TkTrn | TkRef | TkVal | TkBox | TkTag =>
           if name_i is None then defcap = child end
@@ -691,6 +691,13 @@ primitive CheckLegality
       end
     end
 
+    // The grammar builds an entity node only on one of the seven
+    // keywords, so the keyword child is always present.
+    let ent =
+      match found
+      | let k: _EntityKind => k
+      | None => _Unreachable(); _Actor
+      end
     let desc = _EntityDesc(ent)
 
     if name == "Main" then
@@ -725,7 +732,7 @@ primitive CheckLegality
           "generic actor cannot specify C api")
       end
     end
-    if ent == 6 then
+    if ent is _TypeAlias then
       if provides is None then
         match name_i
         | let id: USize =>
@@ -746,7 +753,7 @@ primitive CheckLegality
     file: String val,
     source: String val,
     tree: SyntaxTree val,
-    ent: USize,
+    ent: _EntityKind,
     members: USize,
     at: Array[USize] box,
     width: Array[USize] box,
@@ -771,13 +778,13 @@ primitive CheckLegality
     file: String val,
     source: String val,
     tree: SyntaxTree val,
-    ent: USize,
+    ent: _EntityKind,
     method: USize,
     at: Array[USize] box,
     width: Array[USize] box,
     out: Array[CheckDiagnostic] ref)
   =>
-    var mkind: USize = 0
+    var found: (_MethodKind | None) = None
     var cap: (USize | None) = None
     var bare: (USize | None) = None
     var ret: (USize | None) = None
@@ -795,9 +802,9 @@ primitive CheckLegality
       for child in tree.children(method)? do
         match tree.kind(child)?
         | TkWhitespace | TkLineComment | TkNestedComment => None
-        | TkFun => mkind = 0
-        | TkBe => mkind = 1
-        | TkNew => mkind = 2
+        | TkFun => found = _Fun
+        | TkBe => found = _Be
+        | TkNew => found = _New
         | TkIso | TkTrn | TkRef | TkVal | TkBox | TkTag =>
           if not named then cap = child end
         | TkAt => if not named then bare = child end
@@ -821,6 +828,13 @@ primitive CheckLegality
       end
     end
 
+    // The grammar builds a method node only on fun, be or new, so the
+    // keyword child is always present.
+    let mkind =
+      match found
+      | let k: _MethodKind => k
+      | None => _Unreachable(); _Fun
+      end
     let desc = _MethodDesc(mkind, ent)
     match _MethodPerm(mkind, ent)
     | None =>
@@ -860,7 +874,7 @@ primitive CheckLegality
     width: Array[USize] box,
     out: Array[CheckDiagnostic] ref)
   =>
-    let permission = try perms(index)? else 'X' end
+    let permission = try perms(index)? else _Unreachable(); 'X' end
     if (permission == 'N') and (actual isnt None) then
       match actual
       | let el: USize =>
@@ -1008,7 +1022,7 @@ primitive CheckLegality
         match tree.kind(child)?
         | NdProvides => _provides(file, tree, child, at, width, out)
         | NdMembers =>
-          _members(file, source, tree, 0, child, at, width, out)
+          _members(file, source, tree, _Actor, child, at, width, out)
           for member in tree.children(child)? do
             if tree.kind(member)? is NdField then
               var initialised = false
@@ -1190,17 +1204,42 @@ primitive CheckLegality
     let w = try width(element)? else 0 end
     out.push(CheckDiagnostic(file, a, w, message))
 
+primitive _Actor
+primitive _Class
+primitive _Struct
+primitive _Primitive
+primitive _Trait
+primitive _Interface
+primitive _TypeAlias
+
+type _EntityKind is
+  (_Actor | _Class | _Struct | _Primitive | _Trait | _Interface |
+    _TypeAlias)
+  """
+  The entity axis of ponyc's permission tables, one primitive per
+  keyword, so a match over the rows is exhaustive and a missing row is
+  a compile error rather than a fail-open default.
+  """
+
+primitive _Fun
+primitive _Be
+primitive _New
+
+type _MethodKind is (_Fun | _Be | _New)
+  """
+  The method axis of the same tables.
+  """
+
 primitive _EntityDesc
-  fun apply(ent: USize): String val =>
+  fun apply(ent: _EntityKind): String val =>
     match ent
-    | 0 => "actor"
-    | 1 => "class"
-    | 2 => "struct"
-    | 3 => "primitive"
-    | 4 => "trait"
-    | 5 => "interface"
-    else
-      "type alias"
+    | _Actor => "actor"
+    | _Class => "class"
+    | _Struct => "struct"
+    | _Primitive => "primitive"
+    | _Trait => "trait"
+    | _Interface => "interface"
+    | _TypeAlias => "type alias"
     end
 
 primitive _EntityPerm
@@ -1208,33 +1247,31 @@ primitive _EntityPerm
   ponyc's `_entity_def` table: whether each entity kind may be Main, have
   fields, take a default capability, or take a C api annotation.
   """
-  fun main(ent: USize): U8 => _perm(ent, 0)
-  fun field(ent: USize): U8 => _perm(ent, 1)
-  fun cap(ent: USize): U8 => _perm(ent, 2)
-  fun c_api(ent: USize): U8 => _perm(ent, 3)
+  fun main(ent: _EntityKind): U8 => _perm(ent, 0)
+  fun field(ent: _EntityKind): U8 => _perm(ent, 1)
+  fun cap(ent: _EntityKind): U8 => _perm(ent, 2)
+  fun c_api(ent: _EntityKind): U8 => _perm(ent, 3)
 
-  fun _perm(ent: USize, element: USize): U8 =>
+  fun _perm(ent: _EntityKind, element: USize): U8 =>
     let row =
       match ent
-      | 0 => "XXNX" // actor
-      | 1 => "NXXN" // class
-      | 2 => "NXXN" // struct
-      | 3 => "NNNN" // primitive
-      | 4 => "NNXN" // trait
-      | 5 => "NNXN" // interface
-      else
-        "NNNN"      // type alias
+      | _Actor => "XXNX"
+      | _Class => "NXXN"
+      | _Struct => "NXXN"
+      | _Primitive => "NNNN"
+      | _Trait => "NNXN"
+      | _Interface => "NNXN"
+      | _TypeAlias => "NNNN"
       end
-    try row(element)? else 'X' end
+    try row(element)? else _Unreachable(); 'X' end
 
 primitive _MethodDesc
-  fun apply(mkind: USize, ent: USize): String val =>
+  fun apply(mkind: _MethodKind, ent: _EntityKind): String val =>
     _EntityDesc(ent) + " " +
       (match mkind
-      | 0 => "function"
-      | 1 => "behaviour"
-      else
-        "constructor"
+      | _Fun => "function"
+      | _Be => "behaviour"
+      | _New => "constructor"
       end)
 
 primitive _MethodPerm
@@ -1243,30 +1280,27 @@ primitive _MethodPerm
   elements are receiver capability, bareness, return type, `?`, and body;
   `None` is a row ponyc disallows outright.
   """
-  fun apply(mkind: USize, ent: USize): (String val | None) =>
+  fun apply(mkind: _MethodKind, ent: _EntityKind): (String val | None) =>
     match mkind
-    | 0 => // function
+    | _Fun =>
       match ent
-      | 4 | 5 => "XXXXX" // trait, interface: body optional
-      | 6 => None        // type alias
-      else
-        "XXXXY"
+      | _Trait | _Interface => "XXXXX" // body optional
+      | _TypeAlias => None
+      | _Actor | _Class | _Struct | _Primitive => "XXXXY"
       end
-    | 1 => // behaviour
+    | _Be =>
       match ent
-      | 0 => "NNNNY"     // actor
-      | 4 | 5 => "NNNNX" // trait, interface
-      else
-        None
+      | _Actor => "NNNNY"
+      | _Trait | _Interface => "NNNNX"
+      | _Class | _Struct | _Primitive | _TypeAlias => None
       end
-    else // constructor
+    | _New =>
       match ent
-      | 0 => "NNNNY"     // actor
-      | 1 | 2 => "XNNXY" // class, struct
-      | 3 => "NNNXY"     // primitive
-      | 4 | 5 => "XNNXN" // trait, interface
-      else
-        None
+      | _Actor => "NNNNY"
+      | _Class | _Struct => "XNNXY"
+      | _Primitive => "NNNXY"
+      | _Trait | _Interface => "XNNXN"
+      | _TypeAlias => None
       end
     end
 
