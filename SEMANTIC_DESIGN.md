@@ -445,7 +445,7 @@ Three slices, each a working binary over the full harness, each with its
 ceiling measured by a proxy that matches its own cut. The first
 implementation act was rebuilding the instrument (divergence 5) and
 re-measuring, and it is done: the numbers below are measured, per case,
-over the 1,371 valid cases (51 invalid excluded and listed by the
+over the 1,384 valid cases (66 invalid excluded and listed by the
 instrument; the measured floor is 45.4%). Two scales are in play: the
 floor counts every valid accept, while the scored rate flips the
 pass-limited accepts — the cases full ponyc rejects — so on the scored
@@ -465,7 +465,7 @@ a usage error or internal failure exits 1, distinct from both
 verdicts — a crash never manufactures one); the loader; the parser
 depth guard (divergence 4); and ponyc's `syntax`-pass legality rules — body-free shape checks
 over the existing lossless tree. Measured: 130 rejections error at
-`parse` or `syntax`, **+9.5 points**. Whether the deliberately tolerant
+`parse` or `syntax`, **+9.4 points**. Whether the deliberately tolerant
 parser converts its facts into all 130 verdicts is the open caveat this
 slice closes.
 
@@ -485,10 +485,10 @@ evaluator, provides and constraint checking under the phase rule.
 Measured: 50 rejections error in `typealias_recursion`/`flatten`/
 `traits`, **+3.6 points**. The ~26 signature-level checks ponyc reports
 from its `expr` pass are unverified upside, excluded from every ceiling
-until a per-case audit separates them from body machinery; 528 measured
+until a per-case audit separates them from body machinery; 535 measured
 rejections need `refer` or later.
 
-Cumulative measured ceiling: 843 of 1,371 — **61.5%, +16.1 points over
+Cumulative measured ceiling: 849 of 1,384 — **61.3%, +15.9 points over
 the 45.4% floor** — assuming zero false rejections, and every false
 rejection costs a point, which is what put ponyq's 99 nearly on the
 floor. The per-slice gates (stdlib clean, tree parses, `sig_agreement`
