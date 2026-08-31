@@ -257,13 +257,13 @@ class Loader
                 "Use scheme " + u.scheme_text + " not found"))
             continue
           end
-          if u.aliased and (not u.allow_name) then
+          if u.aliased and (not u.scheme.allow_name()) then
             diags.push(
               CheckDiagnostic(file.path, u.alias_offset, u.alias_width,
                 "Use scheme " + u.scheme_text + " may not have an alias"))
             continue
           end
-          if u.guarded and (not u.allow_guard) then
+          if u.guarded and (not u.scheme.allow_guard()) then
             // ponyc reports this against the alias clause, present or
             // not, so an unaliased `use` is blamed whole.
             let at = if u.aliased then u.alias_offset else u.offset end

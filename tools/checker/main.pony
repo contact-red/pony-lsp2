@@ -47,6 +47,16 @@ actor Main
         return
       elseif arg.compare_sub("--batch=", 8) is Equal then
         batch = arg.substring(8)
+      elseif arg == "--batch" then
+        match try args(n)? else None end
+        | let value: String val =>
+          n = n + 1
+          batch = value
+        | None =>
+          env.err.print("--batch needs a value")
+          env.exitcode(1)
+          return
+        end
       elseif arg.compare_sub("--path=", 7) is Equal then
         let value: String val = arg.substring(7)
         if value.size() == 0 then

@@ -19,6 +19,7 @@ primitive \nodoc\ _GrammarTests is TestList
     test(_TestEveryClauseTakesAnnotations)
     test(_TestJunkInABodyTerminates)
     test(_TestNestingPastTheLimitIsRefused)
+    test(_TestRefusalRecoveryResumes)
 
 primitive \nodoc\ _Find
   fun text(h: TestHelper, tree: SyntaxTree val, kind: NodeKind)
@@ -420,6 +421,34 @@ class \nodoc\ iso _TestNestingPastTheLimitIsRefused is UnitTest
     end
     h.assert_true(found,
       shape + ": no diagnostic names the depth limit")
+
+class \nodoc\ iso _TestRefusalRecoveryResumes is UnitTest
+  fun name(): String => "grammar/depth refusal keeps the rest of the file"
+
+  fun apply(h: TestHelper) =>
+    """
+    Refusing an over-deep region must not cost the declarations after
+    it: recovery resynchronises to a closing token, so the entity that
+    follows the refused one still parses.
+    """
+    let src: String val =
+      recover val
+        let out = String
+        out.append(_Nested.parens(300))
+        out.append("class After\n  fun f(): U8 => 0\n")
+        out
+      end
+    let tree = Parse(src)
+    h.assert_eq[String](src, tree.reprint(), "reprint differs")
+    h.assert_ne[USize](0, tree.diagnostics.size(), "the guard did not fire")
+    var entities: USize = 0
+    for (_, _, _, kind, _) in tree.walk() do
+      if kind is NdClassDef then
+        entities = entities + 1
+      end
+    end
+    h.assert_eq[USize](2, entities,
+      "the declaration after the refused region was lost")
 
 primitive \nodoc\ _Nested
   fun parens(depth: USize): String val =>

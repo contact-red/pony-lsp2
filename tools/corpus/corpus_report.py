@@ -70,7 +70,7 @@ def main():
     for line in open(args[1], encoding="utf8"):
         parts = line.rstrip("\n").split("\t")
 
-        if len(parts) == 2:
+        if len(parts) >= 2:
             verdicts[parts[0]] = parts[1]
 
     by_suite = collections.defaultdict(lambda: [0, 0])

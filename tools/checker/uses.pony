@@ -2,14 +2,20 @@ use "../../upstream/tools/lib/ponylang/pony_syntax"
 
 primitive UsePackage
   """The scheme that names a Pony package: bare, or written `package:`."""
+  fun allow_name(): Bool => true
+  fun allow_guard(): Bool => false
 primitive UseDirective
   """A link or C-shim directive: recorded, never resolved as a package."""
+  fun allow_name(): Bool => false
+  fun allow_guard(): Bool => true
 primitive UseUnknown
   """
   A scheme with no package handler in ponyc's table: a name the table
   does not have, or `test:`, whose handler only ponyc's own tests
   install. An error there and here.
   """
+  fun allow_name(): Bool => false
+  fun allow_guard(): Bool => false
 
 type UseScheme is (UsePackage | UseDirective | UseUnknown)
   """
@@ -32,10 +38,6 @@ class val ScannedUse
     """The locator with any scheme prefix removed."""
   let aliased: Bool
   let guarded: Bool
-  let allow_name: Bool
-    """Whether ponyc's scheme row permits an alias."""
-  let allow_guard: Bool
-    """Whether ponyc's scheme row permits a guard."""
   let offset: USize
   let width: USize
   let locator_offset: USize
@@ -51,8 +53,6 @@ class val ScannedUse
     locator': String val,
     aliased': Bool,
     guarded': Bool,
-    allow_name': Bool,
-    allow_guard': Bool,
     offset': USize,
     width': USize,
     locator_offset': USize,
@@ -65,8 +65,6 @@ class val ScannedUse
     locator = locator'
     aliased = aliased'
     guarded = guarded'
-    allow_name = allow_name'
-    allow_guard = allow_guard'
     offset = offset'
     width = width'
     locator_offset = locator_offset'
@@ -169,34 +167,33 @@ primitive ScanUses
     alias_width: USize)
     : ScannedUse
   =>
-    (let scheme, let scheme_text, let locator, let allow_name,
-      let allow_guard) = _classify(written)
+    (let scheme, let scheme_text, let locator) = _classify(written)
     ScannedUse(scheme, scheme_text, locator, aliased, guarded,
-      allow_name, allow_guard, use_at, use_width,
-      written_at, written_width, alias_at, alias_width)
+      use_at, use_width, written_at, written_width, alias_at,
+      alias_width)
 
   fun _classify(written: String val)
-    : (UseScheme, String val, String val, Bool, Bool)
+    : (UseScheme, String val, String val)
   =>
     """
-    ponyc's scheme table (`use.c`), one row per scheme: the class, the
-    scheme as written, the locator, and whether the row permits an alias
-    and a guard.
+    ponyc's scheme table (`use.c`): the scheme class — which carries the
+    row's alias and guard permissions — the scheme's table name, and the
+    locator.
     """
     let colon =
       try
         written.find(":")?
       else
-        return (UsePackage, "package:", written, true, false)
+        return (UsePackage, "package:", written)
       end
     let scheme_text: String val = written.substring(0, colon + 1)
     let rest: String val = written.substring(colon + 1)
     match scheme_text
-    | "package:" => (UsePackage, scheme_text, rest, true, false)
-    | "lib:" => (UseDirective, scheme_text, rest, false, true)
-    | "path:" => (UseDirective, scheme_text, rest, false, true)
-    | "cincludedir:" => (UseDirective, scheme_text, rest, false, true)
-    | "cdefine:" => (UseDirective, scheme_text, rest, false, true)
+    | "package:" => (UsePackage, scheme_text, rest)
+    | "lib:" => (UseDirective, scheme_text, rest)
+    | "path:" => (UseDirective, scheme_text, rest)
+    | "cincludedir:" => (UseDirective, scheme_text, rest)
+    | "cdefine:" => (UseDirective, scheme_text, rest)
     else
-      (UseUnknown, scheme_text, rest, false, false)
+      (UseUnknown, scheme_text, rest)
     end
