@@ -1,17 +1,74 @@
 #!/bin/sh
-# The checker's own probe fixtures: the shapes its reviews demonstrated,
-# kept as cases so a regression in one is a named failure. Each directory
-# is a package; expected.tsv holds its verdict.
-set -e
+# The checker's probe fixtures. Each directory is a package;
+# expected.tsv holds its verdict and, for a rejection, a substring the
+# diagnostics must carry, so a fixture rejected for the wrong reason is
+# a failure, not an agreement.
+set -eu
 here="$(dirname "$0")"
-checker="$1"; roots="$2"
+# Absolute paths, because the batch check below runs from the fixture
+# directory.
+checker="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"
+roots="$(cd "$2" && pwd)"
 fails=0
-while IFS="	" read -r name want; do
-  "$checker" "$here/$name" --path="$roots" >/dev/null 2>&1 && got=ok || got=fail
+
+# The fixture set and the expectation list must name each other exactly:
+# a directory with no row would otherwise never run.
+dirs=$(cd "$here" && find . -mindepth 1 -maxdepth 1 -type d | sed 's|^\./||' | sort)
+rows=$(cut -f1 "$here/expected.tsv" | sort)
+if [ "$dirs" != "$rows" ]; then
+  echo "PROBE FAIL: fixture directories and expected.tsv disagree"
+  echo "$dirs" > /tmp/probe_dirs.$$; echo "$rows" > /tmp/probe_rows.$$
+  diff /tmp/probe_dirs.$$ /tmp/probe_rows.$$ || true
+  rm -f /tmp/probe_dirs.$$ /tmp/probe_rows.$$
+  exit 1
+fi
+
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+
+# The byte cap, probed with a generated file so the repository does not
+# carry a megabyte of padding.
+mkdir "$tmp/too_large"
+python3 -c "import sys; sys.stdout.write('actor Main\n  new create(env: Env) => None\n' + '// pad\n' * 160_000)" \
+  > "$tmp/too_large/main.pony"
+code=0
+"$checker" "$tmp/too_large" --path="$roots" >/dev/null 2>"$tmp/err" || code=$?
+if [ "$code" != 255 ] || ! grep -q "byte limit" "$tmp/err"; then
+  echo "PROBE FAIL: too_large expected a byte-limit rejection, got exit $code"
+  fails=$((fails+1))
+fi
+
+while IFS="	" read -r name want substring; do
+  code=0
+  "$checker" "$here/$name" --path="$roots" >/dev/null 2>"$tmp/err" || code=$?
+  case "$code" in
+    0) got=ok ;;
+    255) got=fail ;;
+    *) got="crash($code)" ;;
+  esac
   if [ "$got" != "$want" ]; then
     echo "PROBE FAIL: $name expected $want got $got"
     fails=$((fails+1))
+  elif [ "$want" = fail ] && ! grep -qF "$substring" "$tmp/err"; then
+    echo "PROBE FAIL: $name rejected without '$substring'"
+    fails=$((fails+1))
   fi
 done < "$here/expected.tsv"
+
+# The batch driver must agree with the single runs, case by case.
+( cd "$here" && printf '%s\n' $dirs ) > "$tmp/cases"
+( cd "$here" && "$checker" --batch="$tmp/cases" --path="$roots" ) \
+  > "$tmp/batch" 2>/dev/null || {
+    echo "PROBE FAIL: batch run did not exit 0"
+    fails=$((fails+1))
+  }
+while IFS="	" read -r name want _; do
+  got=$(awk -F"	" -v n="$name" '$1 == n { print $2 }' "$tmp/batch")
+  if [ "$got" != "$want" ]; then
+    echo "PROBE FAIL: batch $name expected $want got '$got'"
+    fails=$((fails+1))
+  fi
+done < "$here/expected.tsv"
+
 [ "$fails" -eq 0 ] && echo "probes: all pass"
 exit "$fails"

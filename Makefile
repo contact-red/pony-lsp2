@@ -12,13 +12,11 @@ PATHS      := --path $(BRIDGE) --path $(LIBS) --path $(PONYC_LIB)
 
 .PHONY: all test syntax-test lsp lsp-test tools corpus mutants bind bench \
   types corpus-cases pass-reach memo-pays checker checker-probes \
-  checker-stdlib \
-  checker-corpus \
-  clean FORCE
+  checker-stdlib checker-corpus clean FORCE
 
 all: test
 
-test: syntax-test lsp-test
+test: syntax-test lsp-test checker-probes
 
 # The syntax tree, the parser and the analysis layer.
 syntax-test:
@@ -126,19 +124,28 @@ checker:
 	ponyc -b checker -o build tools/checker
 
 checker-probes: checker
-	tools/checker/probes/run.sh ./build/checker $(PONYC_ROOT)/packages
+	tools/checker/probes/run.sh ./build/checker "$(PONYC_ROOT)/packages"
 
 # Every package in ponyc's standard library must check clean: the gate the
 # corpus cannot provide, because no corpus case uses a stdlib package
 # beyond builtin.
 checker-stdlib: checker
-	@fails=0; \
-	for d in $$(find $(PONYC_ROOT)/packages -name '*.pony' \
-	    -not -name '.*' | xargs -n1 dirname | sort -u); do \
-	  ./build/checker "$$d" --path=$(PONYC_ROOT)/packages \
-	    >/dev/null 2>&1 || { echo "STDLIB FAIL: $$d"; fails=1; }; \
-	done; \
-	[ $$fails -eq 0 ] && echo "stdlib: all packages clean"; exit $$fails
+	@find "$(PONYC_ROOT)/packages" -name '*.pony' -not -name '.*' \
+	  | xargs -d '\n' -n1 dirname | sort -u > build/stdlib_dirs.txt
+	@./build/checker --batch=build/stdlib_dirs.txt \
+	  --path="$(PONYC_ROOT)/packages" > build/stdlib_verdicts.tsv
+	@fails=$$(awk -F'\t' '$$2 != "ok"' build/stdlib_verdicts.tsv | wc -l); \
+	if [ "$$fails" -ne 0 ]; then \
+	  awk -F'\t' '$$2 != "ok" { print "STDLIB FAIL: " $$1 }' \
+	    build/stdlib_verdicts.tsv; \
+	  awk -F'\t' '$$2 != "ok" { print $$1 }' build/stdlib_verdicts.tsv | \
+	  while read -r d; do \
+	    ./build/checker "$$d" --path="$(PONYC_ROOT)/packages" || true; \
+	  done; \
+	  echo "stdlib: $$fails packages failed"; exit 1; \
+	else \
+	  echo "stdlib: all packages clean"; \
+	fi
 
 checker-corpus: checker corpus-cases
 	@test -f $(CORPUS_CASES)/reach.tsv || \

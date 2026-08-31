@@ -1,16 +1,30 @@
-semi_leading_newline	fail
-semi_trailing	fail
-semi_same_line_ok	ok
-semi_missing_leaf	fail
-consume_call_dot	fail
-consume_field_ok	ok
-ffi_two_return_types	fail
-unreachable_after_return	fail
-deep_prefix_chain	fail
-guard_on_package_use	fail
-clean_minimal	ok
-constraint_typeargs_ok	ok
-string_array_semi_ok	ok
-consume_grouped_tuple_ok	ok
-compile_error_docstring	fail
-consume_grouped_expr_fail	fail
+alias_method_fail	fail	type alias functions are not allowed
+clean_minimal	ok	
+compile_error_docstring	fail	a compile error must be the entire ifdef clause
+constraint_typeargs_ok	ok	
+consume_call_dot	fail	Consume expressions must specify an identifier or field
+consume_field_ok	ok	
+consume_grouped_expr_fail	fail	Consume expressions must specify an identifier or field
+consume_grouped_tuple_ok	ok	
+deep_prefix_chain	fail	a less deeply nested expression
+deep_type_fail	fail	a less deeply nested type
+ephemeral_provides_fail	fail	can't specify ephemeral in a provides type
+ffi_two_return_types	fail	FFI functions must specify a single return type
+guard_on_package_use	fail	Use scheme package: may not have a guard
+platform_as_user_flag_fail	fail	"linux" is not a valid user build flag
+semi_leading_newline	fail	Unexpected semicolon
+semi_missing_leaf	fail	Use a semi colon to separate expressions
+semi_same_line_ok	ok	
+semi_trailing	fail	Unexpected semicolon
+string_array_semi_ok	ok	
+struct_behaviour_fail	fail	struct behaviours are not allowed
+tuple_constraint_fail	fail	tuple types can't be used as type constraints
+unknown_platform_flag_fail	fail	"nosuchos" is not a valid platform flag
+unreachable_after_return	fail	Unreachable code
+use_alias_directive_fail	fail	Use scheme lib: may not have an alias
+use_empty_dep_fail	fail	can't load package './empty'
+use_empty_locator_ok	ok	
+use_escaped_locator_ok	ok	
+use_guard_directive_ok	ok	
+use_missing_dep_fail	fail	can't load package 'no_such_package_zz'
+use_scheme_unknown_fail	fail	Use scheme test: not found
