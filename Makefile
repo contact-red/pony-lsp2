@@ -11,7 +11,8 @@ BRIDGE     := $(LIBS)/pony_compiler
 PATHS      := --path $(BRIDGE) --path $(LIBS) --path $(PONYC_LIB)
 
 .PHONY: all test syntax-test lsp lsp-test tools corpus mutants bind bench \
-  types corpus-cases pass-reach memo-pays clean FORCE
+  types corpus-cases pass-reach memo-pays checker checker-corpus \
+  clean FORCE
 
 all: test
 
@@ -116,6 +117,18 @@ pass-reach: corpus-cases
 memo-pays:
 	ponyc -b memo-pays -o build tools/memo_pays
 	./build/memo-pays
+
+# The slice-0 checker: build it, run the corpus through it, and score the
+# verdicts per case. See tools/checker and SEMANTIC_DESIGN.md.
+checker:
+	ponyc -b checker -o build tools/checker
+
+checker-corpus: checker corpus-cases
+	cut -f5 $(CORPUS_CASES)/manifest.tsv > build/case_dirs.txt
+	./build/checker --batch=build/case_dirs.txt \
+	  --path=$(PONYC_ROOT)/packages > build/checker_verdicts.tsv
+	python3 tools/corpus/corpus_report.py $(CORPUS_CASES)/manifest.tsv \
+	  build/checker_verdicts.tsv --reach=$(CORPUS_CASES)/reach.tsv
 
 clean:
 	rm -rf build
