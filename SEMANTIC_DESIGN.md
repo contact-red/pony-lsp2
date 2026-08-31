@@ -97,13 +97,18 @@ The loader walks the `use` graph a level at a time, reading each file's
 imports back from the binder — the binder parses; the loader never does.
 (Slice 0 as built takes an interim shortcut: the binder is not wired in
 until name resolution arrives, so the loader owns the parse and scans
-uses from the tree itself, guard-aware. The binder takes the parse back
-in slice 1.)
+uses from the tree itself, recording each `use`'s guard and alias for
+the legality checks. The binder takes the parse back in slice 1.)
 
 **A package's identity is its canonical (realpath) directory path**,
 carried as `PackageId`, whose constructor is private to the loader: a
 `use` string can never become a package identity except through
-resolution. Two locators reaching one directory are one package. Workers
+resolution. (Slice 0 as built carries the identity as a bare canonical
+path — every site canonicalises before use, and nothing yet crosses a
+boundary where a raw locator could stand in. `PackageId` is owed when
+the loader and binder meet in slice 1 and the identity starts moving
+between components.) Two locators reaching one directory are one
+package. Workers
 never resolve — every consumer reads the same resolved mapping from the
 same inputs, so agreement on type identity is by shared immutable input,
 not by protocol.
@@ -402,7 +407,9 @@ Named, because a verdict corpus alone shipped ponyq 99 wrong rejections
 it never noticed:
 
 1. **The corpus**, floor-relative, per case — the headline gate.
-   Diagnostics render in package and source-position order. In explain
+   Diagnostics render with program-level load failures first, then in
+   package load order, file order, and byte order within a file. In
+   explain
    mode, ponyc's expected message — which `extract_corpus.py` already
    stores in the manifest — is substring-matched against *all* of the
    case's emitted messages rather than only the first, since ponyc's own
@@ -436,7 +443,12 @@ ceiling measured by a proxy that matches its own cut. The first
 implementation act was rebuilding the instrument (divergence 5) and
 re-measuring, and it is done: the numbers below are measured, per case,
 over the 1,363 valid cases (59 invalid excluded and listed by the
-instrument; the measured floor is 45.0%). The reopen trigger — a collapse
+instrument; the measured floor is 45.0%). Two scales are in play: the
+floor counts every valid accept, while the scored rate flips the
+pass-limited accepts — the cases full ponyc rejects — so on the scored
+scale an accept-everything checker sits three points lower. A quoted
+percentage is on the floor scale unless it comes from
+`corpus_report.py`, which scores. The reopen trigger — a collapse
 toward the signature layer's 3.5 points — did not fire; the ceilings
 roughly doubled instead, because the old instrument excluded whole suites
 whose target pass was declared per call site, the 126-case `syntax` suite

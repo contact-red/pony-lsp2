@@ -10,8 +10,8 @@ actor Main
   reads a file of case directories and emits one verdict line per case —
   `<dir>\t(ok|fail|load-failed)` — sharing one loader across the run so
   the packages under the search roots are parsed once. A usage error and
-  an internal failure both exit 1, distinct from both verdicts: a crash
-  must never manufacture one.
+  an internal failure both exit 1, distinct from both verdicts, so a
+  crash is never read as one.
 
   At this slice a rejection means a parse diagnostic, an over-deep or
   over-large source, a `use`-level legality or resolution error, or one
@@ -130,6 +130,20 @@ actor Main
     end
     out
 
+  fun _diagnostic_count(program: Program): USize =>
+    """
+    How many diagnostics `_run_single` would render, without building
+    the render pairing — the batch driver needs only the verdict.
+    """
+    var n: USize =
+      program.load_failures.size() + program.load_diags.size()
+    for package in program.packages.values() do
+      for file in package.files.values() do
+        n = n + file.tree.diagnostics.size() + file.legality.size()
+      end
+    end
+    n
+
   fun _run_single(env: Env, loader: Loader ref, dir: String val) =>
     match loader.load(dir)
     | let e: LoadError =>
@@ -180,9 +194,7 @@ actor Main
         match loader.load(case_dir)
         | let _: LoadError => "load-failed"
         | let program: Program =>
-          if (program.load_failures.size() +
-            _diagnostics(program).size()) == 0
-          then "ok" else "fail" end
+          if _diagnostic_count(program) == 0 then "ok" else "fail" end
         end
       env.out.print(case_dir + "\t" + verdict)
     end

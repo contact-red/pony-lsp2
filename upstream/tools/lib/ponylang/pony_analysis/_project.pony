@@ -255,10 +255,10 @@ primitive _Uses
   Project the `use` declarations out of a tree.
 
   Only the ones that name a Pony package. An `NdUse` holding an `NdUseFFI`
-  names a C function; a `lib:` locator names a native library to link and a
-  `path:` one adds a search path. ponyc has exactly these schemes, and
-  `package:` -- the default when none is written -- is the only one a Pony
-  name resolves through.
+  names a C function, and ponyc's scheme table (`use.c`) has five other
+  schemes -- `lib:`, `path:`, `cincludedir:`, `cdefine:`, and a testing
+  hook -- of which `package:`, the default when none is written, is the
+  only one a Pony name resolves through.
   """
   fun apply(
     tree: SyntaxTree val,
@@ -328,10 +328,10 @@ primitive _Scheme
   """
   What a `use` locator names, if it names a Pony package.
 
-  `None` for the schemes that do not: `lib:` links a native library and
-  `path:` adds a search path. An unknown scheme is ponyc's error to report,
-  and reading it as a package name would invent a dependency, so it is
-  dropped here too.
+  `None` for every other scheme in ponyc's table -- the link and C-shim
+  directives -- and for an unknown scheme, which is ponyc's error to
+  report: reading it as a package name would invent a dependency, so it
+  is dropped here too.
   """
   fun apply(locator: String val): (String val | None) =>
     let colon =

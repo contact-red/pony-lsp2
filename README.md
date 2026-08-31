@@ -52,9 +52,10 @@ document has unsaved changes.
 343 tests pass, against the 332 the vendored copy started with.
 
 The batch checker exists and covers its first slice: the driver, the
-loader, a parser depth guard that turns hostile nesting into a diagnostic
-instead of a stack overflow, and ponyc's syntax-pass legality rules. On
-the corpus's valid cases it rejects nothing ponyc accepts, and every
-remaining disagreement is a not-yet-implemented check tracked per case.
-The semantic layer -- signatures, capabilities, subtyping -- is designed
-in `SEMANTIC_DESIGN.md` and not yet built.
+loader, a parser depth guard that refuses over-deep nesting, and ponyc's
+syntax-pass legality rules, each rule gated by a probe fixture that pins
+its verdict and its message. On the corpus's valid cases it rejects
+nothing ponyc accepts, and every remaining disagreement is a
+not-yet-implemented check tracked per case. The semantic layer --
+signatures, capabilities, subtyping -- is designed in
+`SEMANTIC_DESIGN.md` and not yet built.

@@ -25,12 +25,16 @@ against the instrument's valid universe.
 
 ## What the extraction leaves out
 
-A `TEST_F` that needs more than one source file, replaces `builtin`, or
-compares ASTs is not a plain verdict on one program, so it is skipped. A case
-that survives extraction but where standalone ponyc disagrees with the
-verdict its own test asserts -- the known shape redeclares a builtin name,
-which the unit-test harness tolerates and a standalone compile does not -- is
-detected by `pass_reach.py` and excluded from every number as invalid.
+A `TEST_F` that replaces `builtin` or compares ASTs is not a plain verdict
+on one program, so it is skipped. A test that builds a fixture package and
+registers it as a magic path has that package written out beside its
+`main.pony`, where the bare locator resolves to it. A case that survives
+extraction but where standalone ponyc disagrees with the verdict its own
+test asserts -- the known shape redeclares a builtin name, which the
+unit-test harness tolerates and a standalone compile does not -- is
+detected by `pass_reach.py`, excluded from every number as invalid, and
+recorded in `reach.tsv` as an invalid row so the exclusion is visible to
+scoring.
 
 ## Reading agreement
 

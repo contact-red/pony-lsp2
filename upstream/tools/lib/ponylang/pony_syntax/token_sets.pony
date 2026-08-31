@@ -13,9 +13,7 @@ primitive TokenSets
 
   fun nesting_close(): Array[TokenKind] val =>
     """
-    Where a nested region closes. What the depth guard resynchronises to,
-    so that refusing an over-deep region consumes the region and not the
-    rest of the file.
+    The tokens that close a nested region.
     """
     [TkRparen; TkRsquare; TkRbrace; TkEnd; TkEof]
 

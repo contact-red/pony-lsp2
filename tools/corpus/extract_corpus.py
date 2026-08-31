@@ -104,6 +104,45 @@ def case_pass(macro, rest, defs):
     return embedded or "?"
 
 
+def fixtures(body):
+    """The fixture packages a block builds and registers as magic paths.
+
+    The shape is `write_fixture(var, names, contents)` with two parallel
+    string arrays, then `package_add_magic_path("name", var, ...)`. The
+    files are returned per magic name so the extractor can write them as
+    a package directory beside the case's main.pony, where the bare
+    locator resolves the way the magic path did in the harness.
+    """
+    arrays = {}
+    for m in re.finditer(
+        r"const\s+char\*\s+(\w+)\[\]\s*=\s*\{(.*?)\};", body, re.S
+    ):
+        entries = []
+        piece = None
+        for tok in re.finditer(r'"(?:[^"\\]|\\.)*"|,|NULL', m.group(2)):
+            t = tok.group(0)
+            if t == ",":
+                if piece is not None:
+                    entries.append(piece)
+                    piece = None
+            elif t == "NULL":
+                piece = None
+            else:
+                piece = (piece or "") + unescape(t[1:-1])
+        if piece is not None:
+            entries.append(piece)
+        arrays[m.group(1)] = entries
+
+    out = {}
+    if "names" in arrays and "contents" in arrays:
+        files = list(zip(arrays["names"], arrays["contents"]))
+        for m in re.finditer(
+            r'package_add_magic_path\(\s*"((?:[^"\\]|\\.)*)"', body
+        ):
+            out[unescape(m.group(1))] = files
+    return out
+
+
 def verdict(body, defs):
     """The expected verdict, source variable, pass, and ponyc's message."""
     for m in re.finditer(r"\b(TEST_\w+)\s*\(\s*(\w+)([^;]*)", body):
@@ -170,6 +209,14 @@ def main():
 
             with open(os.path.join(case, "main.pony"), "w", encoding="utf8") as f:
                 f.write(srcs[var])
+
+            for magic, files in fixtures(body).items():
+                pkg = os.path.join(case, magic)
+                os.makedirs(pkg, exist_ok=True)
+                for fname, content in files:
+                    with open(os.path.join(pkg, fname), "w",
+                              encoding="utf8") as f:
+                        f.write(content)
 
             manifest.append((suite, test, expect, case_target, case, message))
 

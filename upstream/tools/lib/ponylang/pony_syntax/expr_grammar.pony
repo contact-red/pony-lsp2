@@ -170,8 +170,8 @@ primitive _Term
   fun apply(p: Parser ref, mode: _ExprMode) =>
     // Every expression-level descent passes through this rule, control
     // structures in condition position included, so the depth guard
-    // here covers what the sequence rule's cannot: nesting that never
-    // opens a new sequence.
+    // here covers what the guard in the sequence rule cannot: nesting
+    // that never opens a new sequence.
     if p.descend() then
       p.error_and_recover(
         "a less deeply nested expression (grammar depth limit " +
@@ -237,7 +237,7 @@ primitive _ParamPattern
   fun apply(p: Parser ref, mode: _ExprMode) =>
     if _IsPrefixOp(p.current(), mode) then
       // A prefix chain recurses here without passing the sequence rule
-      // or the term rule, so it carries its own descent.
+      // or `_Term`, so it carries its own descent.
       if p.descend() then
         p.error_and_recover(
           "a less deeply nested expression (grammar depth limit " +

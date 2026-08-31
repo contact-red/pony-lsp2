@@ -31,8 +31,11 @@ class val EmptyPackage
 primitive _MaxFileBytes
   """
   The largest source file the loader will read: the design's per-file
-  byte cap, surfaced as a diagnostic. Roughly ten times the largest file
-  in the ponyc tree.
+  byte cap, surfaced as a diagnostic. Roughly ten times the largest
+  file in the ponyc tree. An over-large file is a rejection of its
+  package, where an unreadable one stops the whole load: the first is a
+  judgement about the source, the second means the checker never saw
+  it.
   """
   fun apply(): USize => 1_048_576
 

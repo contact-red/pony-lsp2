@@ -36,8 +36,8 @@ primitive CheckLegality
       // so an arrow or tuple inside a constraint's type arguments is
       // legal, and the innermost enclosing marker is the one that
       // applies.
-      let tp_constraints = _ConstraintRanges(tree, false)
-      let constraints = _ConstraintRanges(tree, true)
+      let tp_constraints = _ConstraintRanges(tree where with_iftype = false)
+      let constraints = _ConstraintRanges(tree where with_iftype = true)
       let typeargs = _TypeArgRanges(tree)
       // The walk queries these with strictly increasing element
       // indices, which is what lets each tracker advance a cursor
@@ -394,7 +394,7 @@ primitive CheckLegality
           else
             // A leaf statement -- a literal, a docstring string, a bare
             // reference -- follows the same separation rules as a node.
-            // The docstring's only specialness is _sole_statement's.
+            // A docstring differs only in `_sole_statement`.
             match prev_stmt
             | let _: USize =>
               if (not semi_since_prev) and (not newline_since_prev) then
@@ -479,7 +479,7 @@ primitive CheckLegality
         _diag(file, jump, at, width, out,
           "a compile intrinsic must be a method body")
       elseif (value isnt None) or
-        (not _sole_statement(tree, seq, jump, true))
+        (not _sole_statement(tree, seq, jump where allow_docstring = true))
       then
         _diag(file, jump, at, width, out,
           "a compile intrinsic must be the entire body")
@@ -517,7 +517,9 @@ primitive CheckLegality
       if not reason_ok then
         _diag(file, jump, at, width, out,
           "a compile error must have a string literal reason for the error")
-      elseif not _sole_statement(tree, seq, jump, false) then
+      elseif not
+        _sole_statement(tree, seq, jump where allow_docstring = false)
+      then
         _diag(file, jump, at, width, out,
           "a compile error must be the entire ifdef clause")
       end
