@@ -1,3 +1,14 @@
+primitive _MaxNesting
+  """
+  The deepest node nesting the grammar will enter.
+
+  The grammar recurses on the machine stack, a few frames per nesting
+  level, and overflows it somewhere past ten thousand levels of source
+  nesting. Refusing here keeps that refusal a diagnostic instead of a
+  crash, at a depth no written source approaches.
+  """
+  fun apply(): USize => 500
+
 class Parser
   """
   A cursor over the significant tokens of a source, and a builder for the
@@ -35,6 +46,10 @@ class Parser
     """
     Byte offset of `_index`.
     """
+  var _depth: USize = 0
+    """
+    Grammar recursion depth, counted by `descend`/`ascend`.
+    """
 
   new create(source': String val) =>
     _source = source'
@@ -69,6 +84,24 @@ class Parser
       i = i + 1
     end
     (TkEof, _stream.size(), byte)
+
+  fun ref descend(): Bool =>
+    """
+    Enter one level of grammar recursion, and say whether the limit is now
+    exceeded. The open-node stack cannot measure this, because most rules
+    wrap retroactively from a checkpoint and open nothing while they
+    descend; the machine stack grows regardless, so the recursion itself
+    is what is counted.
+    """
+    _depth = _depth + 1
+    _depth > _MaxNesting()
+
+  fun ref ascend() =>
+    """
+    Leave the level `descend` entered. Every `descend` is paired with one
+    `ascend`, on the refusal path too.
+    """
+    _depth = _depth - 1
 
   fun current(): TokenKind =>
     """

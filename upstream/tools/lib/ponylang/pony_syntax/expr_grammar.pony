@@ -16,6 +16,16 @@ primitive _RawSeq
   nothing at all.
   """
   fun apply(p: Parser ref) =>
+    if p.descend() then
+      // Refusing to descend is what keeps a hostile nesting depth a
+      // diagnostic rather than a stack overflow; the region is consumed
+      // whole and parsing resumes where it closes.
+      p.error_and_recover(
+        "an expression nested no deeper than " + _MaxNesting().string() +
+          " levels",
+        TokenSets.nesting_close())
+      return p.ascend()
+    end
     p.start(NdSeq)
     _Statement(p, _ExprNormal)
     while not _SeqEnd(p.current()) do
@@ -42,6 +52,7 @@ primitive _RawSeq
       end
     end
     p.finish()
+    p.ascend()
 
 primitive _SeqEnd
   """

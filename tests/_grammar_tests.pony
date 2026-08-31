@@ -18,6 +18,7 @@ primitive \nodoc\ _GrammarTests is TestList
     test(_TestControlStructures)
     test(_TestEveryClauseTakesAnnotations)
     test(_TestJunkInABodyTerminates)
+    test(_TestNestingPastTheLimitIsRefused)
 
 primitive \nodoc\ _Find
   fun text(h: TestHelper, tree: SyntaxTree val, kind: NodeKind)
@@ -373,3 +374,46 @@ class \nodoc\ iso _TestJunkInABodyTerminates is UnitTest
     h.assert_ne[USize](0, tree.diagnostics.size(), "no diagnostic")
     h.assert_eq[USize](1, _Find.count(tree, NdMethod),
       "the method was lost")
+
+class \nodoc\ iso _TestNestingPastTheLimitIsRefused is UnitTest
+  fun name(): String => "grammar/nesting past the limit is refused"
+
+  fun apply(h: TestHelper) =>
+    """
+    The grammar recurses on the machine stack, so a hostile nesting depth
+    must become a diagnostic before it becomes a stack overflow. Under the
+    limit nothing fires; past it the region is refused, and the tree still
+    reprints byte for byte.
+    """
+    let shallow = _Nested(100)
+    let deep = _Nested(2000)
+
+    let ok = Parse(shallow)
+    h.assert_eq[String](shallow, ok.reprint(), "shallow reprint differs")
+    h.assert_eq[USize](0, ok.diagnostics.size(),
+      "the guard fired under the limit")
+
+    let refused = Parse(deep)
+    h.assert_eq[String](deep, refused.reprint(), "deep reprint differs")
+    h.assert_ne[USize](0, refused.diagnostics.size(),
+      "the guard did not fire past the limit")
+
+primitive \nodoc\ _Nested
+  fun apply(depth: USize): String val =>
+    recover val
+      let out = String((depth * 2) + 64)
+      out.append("actor Main\n  new create(env: Env) =>\n    ")
+      var i: USize = 0
+      while i < depth do
+        out.push('(')
+        i = i + 1
+      end
+      out.push('1')
+      i = 0
+      while i < depth do
+        out.push(')')
+        i = i + 1
+      end
+      out.push('\n')
+      out
+    end

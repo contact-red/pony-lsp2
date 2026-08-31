@@ -11,6 +11,14 @@ primitive TokenSets
     [ TkUse; TkType; TkInterface; TkTrait
       TkPrimitive; TkStruct; TkClass; TkActor ]
 
+  fun nesting_close(): Array[TokenKind] val =>
+    """
+    Where a nested region closes. What the depth guard resynchronises to,
+    so that refusing an over-deep region consumes the region and not the
+    rest of the file.
+    """
+    [TkRparen; TkRsquare; TkRbrace; TkEnd; TkEof]
+
   fun field_start(): Array[TokenKind] val =>
     [TkVar; TkLet; TkEmbed]
 
