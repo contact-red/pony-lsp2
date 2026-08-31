@@ -2,16 +2,13 @@ use "../../upstream/tools/lib/ponylang/pony_syntax"
 
 primitive CheckLegality
   """
-  ponyc's `syntax`-pass legality rules that need nothing but the tree:
-  the entity and method permission tables from `pass/syntax.c`, ported row
-  for row with ponyc's own wordings, plus the Main checks, the reserved
-  `_` names, the type-alias type requirement, the provides-type shape, and
-  object-literal field initialisation.
-
-  The body-level rules from the same pass — compile intrinsics and
-  errors, semicolon placement, FFI legality, bare lambdas, ifdef flags,
-  constraints, consume shapes, casts — live here too, each verified
-  against its corpus case.
+  ponyc's `syntax`-pass legality rules that need nothing but the tree,
+  ported with ponyc's own wordings: the entity and method permission
+  tables from `pass/syntax.c` row for row, the Main checks, the reserved
+  `_` names, the type-alias type requirement, the provides-type shape,
+  object-literal legality, compile intrinsics and errors, semicolon
+  placement, FFI legality, bare lambdas, ifdef flags, constraints,
+  consume shapes, and casts.
   """
   fun apply(
     file: String val,
@@ -30,17 +27,24 @@ primitive CheckLegality
         width.push(w.usize())
       end
 
-      // Where constraints sit, as element ranges, so the rules about
-      // what a constraint may hold can ask "is this element inside one"
-      // with a scan. Two sets, because ponyc's tuple rule applies only to
+      // Where constraints sit, as element ranges, so a rule about what
+      // a constraint may hold can test whether an element is inside
+      // one. Two sets, because ponyc's tuple rule applies only to
       // type-parameter constraints while its arrow rule also covers
       // iftype constraints. Type-argument ranges are collected too:
-      // ponyc clears the constraint frame on entering type arguments, so
-      // an arrow or tuple inside a constraint's type arguments is legal,
-      // and what decides is the innermost enclosing marker.
+      // ponyc clears the constraint frame on entering type arguments,
+      // so an arrow or tuple inside a constraint's type arguments is
+      // legal, and the innermost enclosing marker is the one that
+      // applies.
       let tp_constraints = _ConstraintRanges(tree, false)
       let constraints = _ConstraintRanges(tree, true)
       let typeargs = _TypeArgRanges(tree)
+      // The walk queries these with strictly increasing element
+      // indices, which is what lets each tracker advance a cursor
+      // instead of rescanning every range per element.
+      let in_constraint = _ConstraintTracker(constraints, typeargs)
+      let in_tp_constraint = _ConstraintTracker(tp_constraints, typeargs)
+      let gencap_constraint = _ConstraintTracker(constraints, typeargs)
 
       // The enclosing elements of the one being visited, maintained from
       // the walk's depths, so a rule that depends on where a construct
@@ -49,14 +53,15 @@ primitive CheckLegality
       let stack = Array[(USize, SyntaxKind)]
       var default_method_scope: USize = 0
         """
-        Past this element index, an FFI call sits inside a trait or
+        Below this element index, an FFI call sits inside a trait or
         interface. Zero when not inside one.
         """
 
       for (element, depth, a, kind, w) in tree.walk() do
         stack.truncate(depth)
         if kind is NdClassDef then
-          _entity(file, tree, element, a, w.usize(), at, width, out)
+          _entity(file, source, tree, element, a, w.usize(), at, width,
+            out)
           if _is_default_method_entity(tree, element) then
             default_method_scope = element + (try
               tree.subtree_size(element)?
@@ -65,7 +70,7 @@ primitive CheckLegality
             end)
           end
         elseif kind is NdObject then
-          _object_fields(file, tree, element, at, width, out)
+          _object(file, source, tree, element, at, width, out)
         elseif kind is NdUseFFI then
           _ffi(file, tree, element, true, at, width, out)
         elseif kind is NdFFICall then
@@ -77,30 +82,30 @@ primitive CheckLegality
         elseif (kind is NdBareLambda) or (kind is NdBareLambdaType) then
           _bare_lambda(file, tree, element, at, width, out)
         elseif kind is NdIfDef then
-          _ifdef_flags(file, tree, element, at, width, out)
+          _ifdef_flags(file, source, tree, element, at, width, out)
         elseif kind is NdSeq then
           _seq(file, source, tree, element, stack, at, width, out)
         elseif kind is TkEllipsis then
           _ellipsis(file, tree, element, stack, at, width, out)
         elseif kind is NdViewpoint then
-          if _InConstraint(constraints, typeargs, element) then
+          if in_constraint(element) then
             _diag(file, element, at, width, out,
               "arrow types can't be used as type constraints")
           end
         elseif kind is NdTupleType then
-          if _InConstraint(tp_constraints, typeargs, element) then
+          if in_tp_constraint(element) then
             _diag(file, element, at, width, out,
               "tuple types can't be used as type constraints")
           end
         elseif kind is NdNominal then
           _gencap_outside_constraint(
-            file, tree, element, constraints, typeargs, at, width, out)
+            file, tree, element, gencap_constraint, at, width, out)
         elseif kind is NdConsume then
           _consume(file, tree, element, at, width, out)
         elseif kind is NdAsOp then
           _cast(file, tree, element, at, width, out)
         elseif kind is NdAnnotations then
-          _annotations(file, tree, element, at, width, out)
+          _annotations(file, source, tree, element, at, width, out)
         end
         stack.push((element, kind))
       end
@@ -179,40 +184,31 @@ primitive CheckLegality
     width: Array[USize] box,
     out: Array[CheckDiagnostic] ref)
   =>
-    var in_params: (USize | None) = None
-    var in_ffi = false
-    try
-      var i = stack.size()
-      while i > 0 do
-        i = i - 1
-        (let el, let kind) = stack(i)?
-        if kind is NdParams then
-          in_params = el
-        elseif kind is NdUseFFI then
-          in_ffi = true
-        elseif kind is NdFFICall then
-          in_ffi = true
-        end
-      end
+    // ponyc's `syntax_ellipsis` tests the grandparent alone: the
+    // ellipsis's parameter list must itself belong to an FFI
+    // declaration, so an ellipsis in a lambda or method nested inside
+    // an FFI call is still an error.
+    (let params, let params_kind) =
+      try stack(stack.size() - 1)? else return end
+    if not (params_kind is NdParams) then
+      return
     end
-    match in_params
-    | None => return
-    | let params: USize =>
-      if not in_ffi then
-        _diag(file, element, at, width, out,
-          "... may only appear in FFI declarations")
-      end
-      // Last parameter: no parameter node after this token.
-      try
-        var after = false
-        for child in tree.children(params)? do
-          if child == element then
-            after = true
-          elseif after and (tree.kind(child)? is NdParam) then
-            _diag(file, element, at, width, out,
-              "... must be the last parameter")
-            break
-          end
+    let grandparent_kind =
+      try stack(stack.size() - 2)?._2 else NdModule end
+    if not (grandparent_kind is NdUseFFI) then
+      _diag(file, element, at, width, out,
+        "... may only appear in FFI declarations")
+    end
+    // Last parameter: no parameter node after this token.
+    try
+      var after = false
+      for child in tree.children(params)? do
+        if child == element then
+          after = true
+        elseif after and (tree.kind(child)? is NdParam) then
+          _diag(file, element, at, width, out,
+            "... must be the last parameter")
+          break
         end
       end
     end
@@ -255,6 +251,7 @@ primitive CheckLegality
 
   fun _ifdef_flags(
     file: String val,
+    source: String val,
     tree: SyntaxTree val,
     ifdef_el: USize,
     at: Array[USize] box,
@@ -264,7 +261,7 @@ primitive CheckLegality
     """
     Flags in an `ifdef` condition: a string is a user build flag, which
     must not be a platform name or a reserved flag; a bare name is a
-    platform flag, which must be one ponyc knows.
+    platform flag, which must be in ponyc's table.
     """
     try
       var in_condition = false
@@ -279,7 +276,7 @@ primitive CheckLegality
           while i < (child + size) do
             match tree.kind(i)?
             | TkString =>
-              let name = _Unquote(recover val tree.text(i)? end)
+              let name = _Unquote(_Text(source, at, width, i))
               if _Platforms.known(name.lower()) or
                 _Platforms.illegal(name.lower())
               then
@@ -289,7 +286,7 @@ primitive CheckLegality
             | NdRef =>
               for part in tree.children(i)? do
                 if tree.kind(part)? is TkId then
-                  let name = recover val tree.text(part)? end
+                  let name = _Text(source, at, width, part)
                   if not _Platforms.known(name) then
                     _diag(file, i, at, width, out,
                       "\"" + name + "\" is not a valid platform flag")
@@ -332,7 +329,7 @@ primitive CheckLegality
         let kind = tree.kind(child)?
         match kind
         | TkWhitespace =>
-          if (recover val tree.text(child)? end).contains("\n") then
+          if _Text(source, at, width, child).contains("\n") then
             newline_since_prev = true
           end
         | TkLineComment => newline_since_prev = true
@@ -355,7 +352,7 @@ primitive CheckLegality
             while j < (seq + tree.subtree_size(seq)?) do
               match tree.kind(j)?
               | TkWhitespace =>
-                if (recover val tree.text(j)? end).contains("\n") then
+                if _Text(source, at, width, j).contains("\n") then
                   bad = true
                   break
                 end
@@ -391,8 +388,8 @@ primitive CheckLegality
             newline_since_prev = false
 
             if kind is NdJump then
-              _jump(file, tree, child, seq, parent_kind, grandparent_kind,
-                at, width, out)
+              _jump(file, tree, child, seq, stack, parent_kind,
+                grandparent_kind, at, width, out)
             end
           else
             // A leaf statement -- a literal, a docstring string, a bare
@@ -419,6 +416,7 @@ primitive CheckLegality
     tree: SyntaxTree val,
     jump: USize,
     seq: USize,
+    stack: Array[(USize, SyntaxKind)] box,
     parent_kind: SyntaxKind,
     grandparent_kind: SyntaxKind,
     at: Array[USize] box,
@@ -442,10 +440,14 @@ primitive CheckLegality
     // A jump swallows what follows it into its value sequence, so
     // ponyc's "Unreachable code" is a bound on that sequence: one
     // expression for `return` and `break`, none for `continue` and
-    // `error`. Anything past the bound is unreachable.
+    // `error`. Anything past the bound is unreachable. ponyc's second
+    // clause walks the enclosing sequence chain: a parenthesised jump
+    // gets its own inner sequence, so a statement after the
+    // parentheses is invisible to the bound and is caught by the walk.
     match keyword
     | TkReturn | TkContinue =>
       let bound: USize = if keyword is TkReturn then 1 else 0 end
+      var reported = false
       match value
       | let v: USize =>
         try
@@ -458,11 +460,15 @@ primitive CheckLegality
               count = count + 1
               if count > bound then
                 _diag(file, part, at, width, out, "Unreachable code")
+                reported = true
                 break
               end
             end
           end
         end
+      end
+      if not reported then
+        _climb_unreachable(file, tree, jump, seq, stack, at, width, out)
       end
       return
     end
@@ -517,6 +523,64 @@ primitive CheckLegality
       end
     end
 
+  fun _climb_unreachable(
+    file: String val,
+    tree: SyntaxTree val,
+    jump: USize,
+    seq: USize,
+    stack: Array[(USize, SyntaxKind)] box,
+    at: Array[USize] box,
+    width: Array[USize] box,
+    out: Array[CheckDiagnostic] ref)
+  =>
+    """
+    ponyc's second unreachable-code clause: from the jump, walk the
+    enclosing sequence chain outward and report the first statement
+    that follows at any level, treating a parenthesised group as
+    transparent the way ponyc's tree, which has no group node, makes
+    it.
+    """
+    var current = jump
+    var parent = seq
+    var parent_kind: SyntaxKind = NdSeq
+    var i = stack.size()
+    try
+      while true do
+        if parent_kind is NdSeq then
+          match _next_statement(tree, parent, current)?
+          | let sibling: USize =>
+            _diag(file, sibling, at, width, out, "Unreachable code")
+            return
+          end
+        elseif not (parent_kind is NdGrouped) then
+          return
+        end
+        current = parent
+        if i == 0 then
+          return
+        end
+        i = i - 1
+        (parent, parent_kind) = stack(i)?
+      end
+    end
+
+  fun _next_statement(tree: SyntaxTree val, parent: USize, current: USize)
+    : (USize | None) ?
+  =>
+    var after = false
+    for child in tree.children(parent)? do
+      if child == current then
+        after = true
+      elseif after then
+        match tree.kind(child)?
+        | TkWhitespace | TkLineComment | TkNestedComment | TkSemi => None
+        else
+          return child
+        end
+      end
+    end
+    None
+
   fun _sole_statement(
     tree: SyntaxTree val,
     seq: USize,
@@ -552,6 +616,7 @@ primitive CheckLegality
 
   fun _entity(
     file: String val,
+    source: String val,
     tree: SyntaxTree val,
     element: USize,
     a: USize,
@@ -585,7 +650,7 @@ primitive CheckLegality
         | TkId =>
           if name_i is None then
             name_i = child
-            name = recover val tree.text(child)? end
+            name = _Text(source, at, width, child)
           end
         | NdTypeParams => typeparams = child
         | NdProvides => provides = child
@@ -642,11 +707,13 @@ primitive CheckLegality
       end
     end
     match members
-    | let ms: USize => _members(file, tree, ent, ms, at, width, out)
+    | let ms: USize =>
+      _members(file, source, tree, ent, ms, at, width, out)
     end
 
   fun _members(
     file: String val,
+    source: String val,
     tree: SyntaxTree val,
     ent: USize,
     members: USize,
@@ -662,15 +729,16 @@ primitive CheckLegality
             _diag(file, member, at, width, out,
               "Can't have fields in " + _EntityDesc(ent))
           end
-          _id_is(file, tree, member, "field", at, width, out)
+          _id_is(file, source, tree, member, "field", at, width, out)
         | NdMethod =>
-          _method(file, tree, ent, member, at, width, out)
+          _method(file, source, tree, ent, member, at, width, out)
         end
       end
     end
 
   fun _method(
     file: String val,
+    source: String val,
     tree: SyntaxTree val,
     ent: USize,
     method: USize,
@@ -720,7 +788,7 @@ primitive CheckLegality
       _element(file, perms, 4, body_el, method, "body", desc,
         at, width, out)
     end
-    _id_is(file, tree, method, "method", at, width, out)
+    _id_is(file, source, tree, method, "method", at, width, out)
 
   fun _element(
     file: String val,
@@ -757,7 +825,9 @@ primitive CheckLegality
     try
       for child in tree.children(provides)? do
         match tree.kind(child)?
-        | NdNominal | NdInfixType | NdGroupedType =>
+        | TkIs | NdError
+        | TkWhitespace | TkLineComment | TkNestedComment => None
+        else
           _provides_type(file, tree, child, at, width, out)
         end
       end
@@ -810,7 +880,9 @@ primitive CheckLegality
       | NdGroupedType =>
         for child in tree.children(element)? do
           match tree.kind(child)?
-          | NdNominal | NdInfixType | NdGroupedType =>
+          | TkLparen | TkLparenNew | TkRparen | NdError
+          | TkWhitespace | TkLineComment | TkNestedComment => None
+          else
             _provides_type(file, tree, child, at, width, out)
           end
         end
@@ -823,17 +895,26 @@ primitive CheckLegality
     "invalid provides type. Can only be interfaces, traits and intersects " +
       "of those."
 
-  fun _object_fields(
+  fun _object(
     file: String val,
+    source: String val,
     tree: SyntaxTree val,
     obj: USize,
     at: Array[USize] box,
     width: Array[USize] box,
     out: Array[CheckDiagnostic] ref)
   =>
+    """
+    ponyc's `syntax_object`: an object literal's members go through the
+    actor permission tables, its provides list through the provides
+    rules, and its fields must carry an initialiser.
+    """
     try
       for child in tree.children(obj)? do
-        if tree.kind(child)? is NdMembers then
+        match tree.kind(child)?
+        | NdProvides => _provides(file, tree, child, at, width, out)
+        | NdMembers =>
+          _members(file, source, tree, 0, child, at, width, out)
           for member in tree.children(child)? do
             if tree.kind(member)? is NdField then
               var initialised = false
@@ -854,6 +935,7 @@ primitive CheckLegality
 
   fun _id_is(
     file: String val,
+    source: String val,
     tree: SyntaxTree val,
     parent: USize,
     what: String val,
@@ -864,7 +946,7 @@ primitive CheckLegality
     try
       for child in tree.children(parent)? do
         if tree.kind(child)? is TkId then
-          if (recover val tree.text(child)? end) == "_" then
+          if _Text(source, at, width, child) == "_" then
             _diag(file, child, at, width, out,
               what + " name cannot be \"_\"")
           end
@@ -877,13 +959,12 @@ primitive CheckLegality
     file: String val,
     tree: SyntaxTree val,
     nominal: USize,
-    constraints: Array[(USize, USize)] box,
-    typeargs: Array[(USize, USize)] box,
+    in_constraint: _ConstraintTracker,
     at: Array[USize] box,
     width: Array[USize] box,
     out: Array[CheckDiagnostic] ref)
   =>
-    if _InConstraint(constraints, typeargs, nominal) then
+    if in_constraint(nominal) then
       return
     end
     try
@@ -924,7 +1005,8 @@ primitive CheckLegality
             | NdGrouped =>
               // ponyc rejects a parenthesised expression left of the dot
               // but accepts a tuple, and this tree parses a tuple as a
-              // group wrapping one, so the group's content decides.
+              // group wrapping one, so the rule applies to the group's
+              // content.
               for inner in tree.children(part)? do
                 match tree.kind(inner)?
                 | TkWhitespace | TkLineComment | TkNestedComment
@@ -977,6 +1059,7 @@ primitive CheckLegality
 
   fun _annotations(
     file: String val,
+    source: String val,
     tree: SyntaxTree val,
     anns: USize,
     at: Array[USize] box,
@@ -986,7 +1069,7 @@ primitive CheckLegality
     try
       for child in tree.children(anns)? do
         if tree.kind(child)? is TkId then
-          if (recover val tree.text(child)? end)
+          if _Text(source, at, width, child)
             .compare_sub("ponyint", 7) is Equal
           then
             _diag(file, child, at, width, out,
@@ -1090,46 +1173,100 @@ primitive _MethodPerm
     end
 
 
-primitive _InConstraint
+class _ConstraintTracker
   """
-  Whether an element sits in a constraint, the way ponyc's frame does:
-  the innermost enclosing marker decides, and entering type arguments
-  clears the constraint, so only a constraint range that is nearer than
-  every enclosing type-argument range counts.
+  Whether an element sits in a constraint, matching ponyc's frame:
+  entering type arguments clears the constraint, so an element is in a
+  constraint only when the innermost enclosing constraint range is
+  nearer than every enclosing type-argument range.
+
+  The range tables are ordered by start element — `_ConstraintRanges`
+  and `_TypeArgRanges` build them from pre-order walks and crash if the
+  order is ever violated — and queries arrive in element order, so one
+  cursor per table replaces a scan of every range per query.
   """
-  fun apply(
+  let _constraints: Array[(USize, USize)] box
+  let _typeargs: Array[(USize, USize)] box
+  var _ci: USize = 0
+  var _ti: USize = 0
+  embed _copen: Array[(USize, USize)] = _copen.create()
+  embed _topen: Array[(USize, USize)] = _topen.create()
+
+  new create(
     constraints: Array[(USize, USize)] box,
-    typeargs: Array[(USize, USize)] box,
-    element: USize)
-    : Bool
+    typeargs: Array[(USize, USize)] box)
   =>
-    var best_constraint: USize = USize.max_value()
-    for (from, to) in constraints.values() do
-      if (element >= from) and (element < to) then
-        if (to - from) < best_constraint then
-          best_constraint = to - from
-        end
+    _constraints = constraints
+    _typeargs = typeargs
+
+  fun ref apply(element: USize): Bool =>
+    _advance(element)
+    let best =
+      try
+        let range = _copen(_copen.size() - 1)?
+        range._2 - range._1
+      else
+        return false
       end
-    end
-    if best_constraint == USize.max_value() then
-      return false
-    end
-    for (from, to) in typeargs.values() do
-      if (element >= from) and (element < to) then
-        if (to - from) < best_constraint then
-          return false
-        end
+    try
+      let range = _topen(_topen.size() - 1)?
+      if (range._2 - range._1) < best then
+        return false
       end
     end
     true
 
+  fun ref _advance(element: USize) =>
+    while
+      try _copen(_copen.size() - 1)?._2 <= element else false end
+    do
+      try _copen.pop()? end
+    end
+    while
+      try _constraints(_ci)?._1 <= element else false end
+    do
+      try
+        let range = _constraints(_ci)?
+        if range._2 > element then
+          _copen.push(range)
+        end
+      end
+      _ci = _ci + 1
+    end
+    while
+      try _topen(_topen.size() - 1)?._2 <= element else false end
+    do
+      try _topen.pop()? end
+    end
+    while
+      try _typeargs(_ti)?._1 <= element else false end
+    do
+      try
+        let range = _typeargs(_ti)?
+        if range._2 > element then
+          _topen.push(range)
+        end
+      end
+      _ti = _ti + 1
+    end
+
 primitive _TypeArgRanges
+  """
+  The element range of every type-argument list, ordered by start
+  element — `_ConstraintTracker` reads the table with a cursor and that
+  order is what makes the cursor sound, so a violation crashes.
+  """
   fun apply(tree: SyntaxTree val): Array[(USize, USize)] val =>
     recover val
       let out = Array[(USize, USize)]
+      var last: USize = 0
       for (element, _, _, kind, _) in tree.walk() do
         if kind is NdTypeArgs then
           try
+            if element < last then
+              _Unreachable()
+            end
+            last = element
             out.push((element, element + tree.subtree_size(element)?))
           end
         end
@@ -1141,13 +1278,15 @@ primitive _ConstraintRanges
   """
   The element ranges of every type-parameter constraint and every iftype
   constraint: for a type parameter, the type after its colon; for an
-  iftype, the type after `<:`.
+  iftype, the type after `<:`. Ordered by start element — see
+  `_TypeArgRanges` for why a violation crashes.
   """
   fun apply(tree: SyntaxTree val, with_iftype: Bool)
     : Array[(USize, USize)] val
   =>
     recover val
       let out = Array[(USize, USize)]
+      var last: USize = 0
       for (element, _, _, kind, _) in tree.walk() do
         if (kind is NdTypeParam) or
           (with_iftype and (kind is NdIfType))
@@ -1160,6 +1299,10 @@ primitive _ConstraintRanges
               | NdDefaultArg | TkThen => in_constraint = false
               else
                 if in_constraint and (not tree.is_leaf(child)?) then
+                  if child < last then
+                    _Unreachable()
+                  end
+                  last = child
                   out.push((child, child + tree.subtree_size(child)?))
                 end
               end
@@ -1172,7 +1315,7 @@ primitive _ConstraintRanges
 
 primitive _Platforms
   """
-  The platform flags ponyc's `os_is_target` answers for, and the reserved
+  The platform flags ponyc's `os_is_target` tests, and the reserved
   user flags, from `platformfuns.h` and `syntax.c`.
   """
   fun known(name: String val): Bool =>
@@ -1190,4 +1333,19 @@ primitive _Platforms
     | "ndebug" | "unknown_os" | "unknown_size" => true
     else
       false
+    end
+
+primitive _Text
+  fun apply(
+    source: String val,
+    at: Array[USize] box,
+    width: Array[USize] box,
+    element: USize)
+    : String val
+  =>
+    try
+      let from = at(element)?
+      source.substring(from.isize(), (from + width(element)?).isize())
+    else
+      ""
     end
