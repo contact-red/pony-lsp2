@@ -233,12 +233,9 @@ class Loader
         | let e: LoadError =>
           match site
           | None =>
-            // The root and builtin are preconditions of the run.
-            match e
-            | let _: EmptyPackage => return EmptyPackage(locator)
-            else
-              return e
-            end
+            // The root and builtin are preconditions of the run, and
+            // their errors already carry the locator as typed.
+            return e
           | let s: _UseSite =>
             failures.push(UnlocatedDiagnostic(e.string()))
             diags.push(

@@ -112,10 +112,9 @@ path — every site canonicalises before use, and nothing yet crosses a
 boundary where a raw locator could stand in. `PackageId` is owed when
 the loader and binder meet in slice 1 and the identity starts moving
 between components.) Two locators reaching one directory are one
-package. Workers
-never resolve — every consumer reads the same resolved mapping from the
-same inputs, so agreement on type identity is by shared immutable input,
-not by protocol.
+package. Workers never resolve — every consumer reads the same
+resolved mapping from the same inputs, so agreement on type identity
+is by shared immutable input, not by protocol.
 
 **Verdicts split as ponyq's do**: a root directory that cannot be loaded
 is `load-failed`, and so is a run that cannot resolve `builtin` — that is
@@ -413,8 +412,7 @@ it never noticed:
 1. **The corpus**, floor-relative, per case — the headline gate.
    Diagnostics render with program-level load failures first, then in
    package load order, file order, and byte order within a file. In
-   explain
-   mode, ponyc's expected message — which `extract_corpus.py` already
+   explain mode, ponyc's expected message — which `extract_corpus.py` already
    stores in the manifest — is substring-matched against *all* of the
    case's emitted messages rather than only the first, since ponyc's own
    first message depends on its pass ordering, which this design does not
@@ -462,8 +460,8 @@ among them.
 `--batch` contract verbatim ponyq's, so the harness scripts run
 unmodified (`<dir>\t(ok|fail|load-failed)`, exit 0 for the batch; single
 mode exits 0 clean / 255 with ponyc-shaped errors off `LineIndex(Utf8)`;
-internal failure exits 1, distinct from both verdicts — a crash must
-never manufacture one); the loader; the parser depth guard (divergence
+a usage error or internal failure exits 1, distinct from both
+verdicts — a crash never manufactures one); the loader; the parser depth guard (divergence
 4); and ponyc's `syntax`-pass legality rules — body-free shape checks
 over the existing lossless tree. Measured: 130 rejections error at
 `parse` or `syntax`, **+9.5 points**. Whether the deliberately tolerant

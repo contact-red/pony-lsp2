@@ -1,0 +1,14 @@
+Error:
+nosuch_pkg_render: couldn't locate this path
+Error:
+$DIR/a_first.pony:1:1: can't load package 'nosuch_pkg_render'
+use "nosuch_pkg_render"
+^
+Error:
+$DIR/a_first.pony:4:3: class behaviours are not allowed
+  be b() => None
+  ^
+Error:
+$DIR/z_last.pony:1:15: invalid provides type. Can only be interfaces, traits and intersects of those.
+class Z is (U8, U8)
+              ^

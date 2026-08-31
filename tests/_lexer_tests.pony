@@ -163,12 +163,14 @@ class \nodoc\ iso _TestNestedComment is UnitTest
     end
 
 class \nodoc\ iso _TestUnterminatedNestedComment is UnitTest
-  fun name(): String => "lexer/unterminated nested comment runs to the end"
+  fun name(): String => "lexer/unterminated nested comment is an error"
 
   fun apply(h: TestHelper) =>
+    // ponyc's verdict: a comment that never closes is an error, like an
+    // unterminated string. It still covers the rest of the source.
     let src = "x /* never closed"
     _Assert.covers(h, src)
-    h.assert_eq[String]("TkId TkWhitespace TkNestedComment TkEof",
+    h.assert_eq[String]("TkId TkWhitespace TkLexError TkEof",
       _Lex.kinds(src))
 
 class \nodoc\ iso _TestKeywordsAndIdentifiers is UnitTest

@@ -87,8 +87,12 @@ class TokenStream
         _push(TkLineComment, i, j)
         i = j
       elseif (c == '/') and (_byte(i + 1) == '*') then
-        let j = _nested_comment(i, n)
-        _push(TkNestedComment, i, j)
+        (let j, let terminated) = _nested_comment(i, n)
+        // An unterminated comment is ponyc's "Nested comment doesn't
+        // terminate" error, so it lexes as an error token rather than
+        // trivia, the way an unterminated string does.
+        _push(if terminated then TkNestedComment else TkLexError end,
+          i, j)
         after_newline = false
         i = j
       else
@@ -126,10 +130,11 @@ class TokenStream
     end
     j
 
-  fun _nested_comment(from: USize, n: USize): USize =>
+  fun _nested_comment(from: USize, n: USize): (USize, Bool) =>
     """
-    A `/* */` comment, which may contain further `/* */` pairs. An
-    unterminated one runs to the end of the source rather than failing.
+    A `/* */` comment, which may contain further `/* */` pairs, and
+    whether it terminated. An unterminated one runs to the end of the
+    source rather than failing.
     """
     var j = from + 2
     var depth: USize = 1
@@ -144,7 +149,7 @@ class TokenStream
         j = j + 1
       end
     end
-    j
+    (j, depth == 0)
 
   fun _token(from: USize, n: USize, after_newline: Bool)
     : (TokenKind, USize)

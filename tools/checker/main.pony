@@ -15,9 +15,24 @@ actor Main
 
   At this slice a rejection means a parse diagnostic, an over-deep or
   over-large source, a `use`-level legality or resolution error, or one
-  of the ported syntax-pass legality rules.
+  of the ported syntax-pass legality rules. When any file fails to
+  parse, only the parse diagnostics report, as in ponyc, whose later
+  passes do not run after a parse error.
+
+  Both loops run in chunks of behaviours rather than one call, so a
+  long batch or a diagnostic-heavy file is collected as it goes instead
+  of holding every allocation to the end.
   """
+  let _env: Env
+  var _loader: (Loader | None) = None
+  var _cases: Array[String val] val = recover val Array[String val] end
+  var _case_index: USize = 0
+  embed _render_queue: Array[(CheckDiagnostic, LineIndex val)] =
+    _render_queue.create()
+  var _render_index: USize = 0
+
   new create(env: Env) =>
+    _env = env
     var batch: (String val | None) = None
     var target: (String val | None) = None
     let roots = recover iso Array[String val] end
@@ -91,14 +106,15 @@ actor Main
     end
 
     let loader = Loader(FileAuth(env.root), consume roots)
+    _loader = loader
 
     match batch
     | let list: String val =>
-      _run_batch(env, loader, list)
+      _start_batch(list)
     else
       match target
       | let dir: String val =>
-        _run_single(env, loader, dir)
+        _run_single(loader, dir)
       | None =>
         _usage(env.err)
         env.exitcode(1)
@@ -111,17 +127,29 @@ actor Main
       "       checker --batch=<cases-file> [--path=ROOT ...]\n" +
       "PONYPATH entries are search roots too, after every --path.")
 
-  fun _diagnostics(program: Program)
-    : Array[(CheckDiagnostic, LineIndex val)]
+  fun _parse_failed(program: Program): Bool =>
+    for package in program.packages.values() do
+      for file in package.files.values() do
+        if file.tree.diagnostics.size() > 0 then
+          return true
+        end
+      end
+    end
+    false
+
+  fun _grouped(program: Program)
+    : Array[(FileData, Array[CheckDiagnostic])]
   =>
     """
-    Every located diagnostic the loaded program carries, paired with its
-    file's line index: packages in load order, files in package order,
-    and byte order within a file. The unlocated failures in
-    `program.load_failures` are not here; they render first, before any
-    located diagnostic.
+    Every located diagnostic the loaded program carries, grouped and
+    sorted: packages in load order, files in package order, byte order
+    within a file. When any file failed to parse, only the parse
+    diagnostics are included, as in ponyc, whose later passes do not
+    run after a parse error. Verdict counting and rendering both read
+    this one grouping, so they cannot disagree.
     """
-    let out = Array[(CheckDiagnostic, LineIndex val)]
+    let parse_failed = _parse_failed(program)
+    let out = Array[(FileData, Array[CheckDiagnostic])]
     for package in program.packages.values() do
       for file in package.files.values() do
         let diags = Array[CheckDiagnostic]
@@ -129,72 +157,115 @@ actor Main
           diags.push(
             CheckDiagnostic(file.path, d.offset, d.width, d.message))
         end
-        for d in file.legality.values() do
-          diags.push(d)
-        end
-        for d in program.load_diags.values() do
-          if d.file == file.path then
+        if not parse_failed then
+          for d in file.legality.values() do
             diags.push(d)
+          end
+          for d in program.load_diags.values() do
+            if d.file == file.path then
+              diags.push(d)
+            end
           end
         end
         _SortByOffset(diags)
-        let index: LineIndex val = LineIndex(file.source, Utf8)
-        for d in diags.values() do
-          out.push((d, index))
-        end
+        out.push((file, diags))
       end
     end
     out
 
-  fun _diagnostic_count(program: Program): USize =>
+  fun _verdict_count(program: Program): USize =>
     """
-    How many diagnostics `_run_single` would render, without building
-    the render pairing — the batch driver needs only the verdict.
+    How many diagnostics single mode would render, from the same
+    grouping it renders.
     """
     var n: USize =
-      program.load_failures.size() + program.load_diags.size()
-    for package in program.packages.values() do
-      for file in package.files.values() do
-        n = n + file.tree.diagnostics.size() + file.legality.size()
-      end
+      if _parse_failed(program) then 0
+      else program.load_failures.size() end
+    for (_, diags) in _grouped(program).values() do
+      n = n + diags.size()
     end
     n
 
-  fun _run_single(env: Env, loader: Loader ref, dir: String val) =>
+  fun ref _run_single(loader: Loader ref, dir: String val) =>
     match loader.load(dir)
     | let e: LoadError =>
-      env.err.print("Error:\n" + e.string())
-      env.exitcode(255)
+      _env.err.print("Error:\n" + e.string())
+      _env.exitcode(255)
     | let program: Program =>
-      let located = _diagnostics(program)
-      if (program.load_failures.size() + located.size()) == 0 then
-        env.exitcode(0)
-      else
+      var any = false
+      if not _parse_failed(program) then
         // ponyc prints an `Error:` heading per diagnostic.
         for f in program.load_failures.values() do
-          env.err.print("Error:\n" + f.string())
+          _Stderr.print("Error:\n" + f.string())
+          any = true
         end
-        for (d, index) in located.values() do
-          env.err.print("Error:\n" + RenderDiag(d, index))
+      end
+      for (file, diags) in _grouped(program).values() do
+        if diags.size() > 0 then
+          let index: LineIndex val = LineIndex(file.source, Utf8)
+          for d in diags.values() do
+            _render_queue.push((d, index))
+          end
         end
-        env.exitcode(255)
+      end
+      if any or (_render_queue.size() > 0) then
+        _env.exitcode(255)
+        _render_chunk()
+      else
+        _env.exitcode(0)
       end
     end
 
-  fun _run_batch(env: Env, loader: Loader ref, list: String val) =>
+  be _render_chunk() =>
+    """
+    Render a bounded slice of the queue per behaviour, so the strings a
+    diagnostic-heavy file produces are collected as the run goes.
+    """
+    var n: USize = 0
+    while (n < 256) and (_render_index < _render_queue.size()) do
+      try
+        (let d, let index) = _render_queue(_render_index)?
+        _Stderr.print("Error:\n" + RenderDiag(d, index))
+      end
+      _render_index = _render_index + 1
+      n = n + 1
+    end
+    if _render_index < _render_queue.size() then
+      _render_chunk()
+    end
+
+  fun ref _start_batch(list: String val) =>
     let cases: Array[String val] val =
       try
-        let f = OpenFile(FilePath(FileAuth(env.root), list)) as File
+        let f = OpenFile(FilePath(FileAuth(_env.root), list)) as File
         let text: String val =
           recover val String.from_array(f.read(f.size())) end
         f.dispose()
         text.split_by("\n")
       else
-        env.err.print("cannot read batch list: " + list)
-        env.exitcode(1)
+        _env.err.print("cannot read batch list: " + list)
+        _env.exitcode(1)
         return
       end
-    for line in cases.values() do
+    _cases = cases
+    _batch_chunk()
+
+  be _batch_chunk() =>
+    """
+    Check a bounded slice of the case list per behaviour, so a long
+    batch's garbage is collected as the run goes instead of held to
+    the end.
+    """
+    let loader =
+      match _loader
+      | let l: Loader => l
+      | None => return
+      end
+    var n: USize = 0
+    while (n < 32) and (_case_index < _cases.size()) do
+      let line = try _cases(_case_index)? else "" end
+      _case_index = _case_index + 1
+      n = n + 1
       let case_dir: String val =
         // A batch list written on Windows carries a `\r` before each
         // newline; it is never part of the directory name.
@@ -210,11 +281,15 @@ actor Main
         match loader.load(case_dir)
         | let _: LoadError => "load-failed"
         | let program: Program =>
-          if _diagnostic_count(program) == 0 then "ok" else "fail" end
+          if _verdict_count(program) == 0 then "ok" else "fail" end
         end
-      env.out.print(case_dir + "\t" + verdict)
+      _env.out.print(case_dir + "\t" + verdict)
     end
-    env.exitcode(0)
+    if _case_index < _cases.size() then
+      _batch_chunk()
+    else
+      _env.exitcode(0)
+    end
 
 primitive _SortByOffset
   """

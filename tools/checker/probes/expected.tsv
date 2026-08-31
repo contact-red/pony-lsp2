@@ -1,4 +1,6 @@
 alias_method_fail	fail	type alias functions are not allowed
+bare_lambda_typeparams_fail	fail	a bare lambda cannot specify type parameters
+cast_literal_fail	fail	Cannot cast uninferred numeric literal
 clean_minimal	ok	
 compile_error_docstring	fail	a compile error must be the entire ifdef clause
 constraint_typeargs_ok	ok	
@@ -8,23 +10,36 @@ consume_grouped_expr_fail	fail	Consume expressions must specify an identifier or
 consume_grouped_tuple_ok	ok	
 deep_prefix_chain	fail	a less deeply nested expression
 deep_type_fail	fail	a less deeply nested type
+ellipsis_outside_ffi_fail	fail	... may only appear in FFI declarations
 ephemeral_provides_fail	fail	can't specify ephemeral in a provides type
 ffi_two_return_types	fail	FFI functions must specify a single return type
 guard_on_package_use	fail	Use scheme package: may not have a guard
+intrinsic_outside_body_fail	fail	a compile intrinsic must be a method body
+load_failed_root	load-failed	no Pony source files in package
+main_not_actor_fail	fail	Main must be an actor
+parse_error_suppresses_fail	fail	expected a parameter name
 platform_as_user_flag_fail	fail	"linux" is not a valid user build flag
+primitive_behaviour_fail	fail	primitive behaviours are not allowed
+provides_tuple_fail	fail	invalid provides type
+render_order	fail	can't load package 'nosuch_pkg_render'
 semi_leading_newline	fail	Unexpected semicolon
 semi_missing_leaf	fail	Use a semi colon to separate expressions
 semi_same_line_ok	ok	
 semi_trailing	fail	Unexpected semicolon
 string_array_semi_ok	ok	
 struct_behaviour_fail	fail	struct behaviours are not allowed
+struct_capi_fail	fail	struct cannot specify C api
+tp_default_gencap_fail	fail	a capability set can only appear in a type constraint
+tp_default_tuple_ok	ok	
 tuple_constraint_fail	fail	tuple types can't be used as type constraints
 unknown_platform_flag_fail	fail	"nosuchos" is not a valid platform flag
 unreachable_after_return	fail	Unreachable code
+unterminated_comment_fail	fail	found TkLexError
 use_alias_directive_fail	fail	Use scheme lib: may not have an alias
 use_empty_dep_fail	fail	can't load package './empty'
 use_empty_locator_ok	ok	
 use_escaped_locator_ok	ok	
 use_guard_directive_ok	ok	
+use_guard_flag_fail	fail	"nosuchflag" is not a valid platform flag
 use_missing_dep_fail	fail	can't load package 'no_such_package_zz'
 use_scheme_unknown_fail	fail	Use scheme test: not found

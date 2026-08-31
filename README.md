@@ -51,11 +51,13 @@ document has unsaved changes.
 
 343 tests pass, against the 332 the vendored copy started with.
 
-The batch checker exists and covers its first slice: the driver, the
-loader, a parser depth guard that refuses over-deep nesting, and ponyc's
-syntax-pass legality rules, each rule gated by a probe fixture that pins
-its verdict and its message. On the corpus's valid cases it rejects
-nothing ponyc accepts, and every remaining disagreement is a
-not-yet-implemented check tracked per case. The semantic layer --
+The batch checker covers its first slice: the driver, the loader, a
+parser depth guard that refuses over-deep nesting, and the ported
+subset of ponyc's syntax-pass legality rules — `tools/checker/probes`
+holds a fixture per rule family, pinning verdicts, messages, and one
+whole rendering, though not yet every variant of every ported rule. On
+the corpus's valid cases it rejects nothing ponyc accepts, and every
+remaining disagreement is a not-yet-implemented check tracked per
+case. The semantic layer --
 signatures, capabilities, subtyping -- is designed in
 `SEMANTIC_DESIGN.md` and not yet built.

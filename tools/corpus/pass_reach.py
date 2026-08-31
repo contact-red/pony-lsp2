@@ -166,7 +166,12 @@ def main():
                         (suite, test, "invalid", target,
                          "reject clean through " + target, "-"))
                     continue
-                records.append((suite, test, expect, target, earliest, guard))
+                if earliest == "timeout":
+                    records.append(
+                        (suite, test, "invalid", target, "timeout", "-"))
+                    continue
+                records.append(
+                    (suite, test, expect, target, earliest, guard))
 
             if (i % 100) == 0:
                 print(f"  {i}/{len(rows)}", file=sys.stderr)

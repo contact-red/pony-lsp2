@@ -45,8 +45,12 @@ while IFS="	" read -r name want substring; do
     255) got=fail ;;
     *) got="crash($code)" ;;
   esac
-  if [ "$got" != "$want" ]; then
-    echo "PROBE FAIL: $name expected $want got $got"
+  # Single mode has two exit codes; a load-failed row expects the
+  # rejection exit there and its own verdict in the batch pass below.
+  single_want="$want"
+  [ "$want" = load-failed ] && single_want=fail
+  if [ "$got" != "$single_want" ]; then
+    echo "PROBE FAIL: $name expected $single_want got $got"
     fails=$((fails+1))
   elif [ "$want" != ok ] && [ -z "$substring" ]; then
     # An empty substring matches anything, which would quietly turn the
@@ -57,7 +61,36 @@ while IFS="	" read -r name want substring; do
     echo "PROBE FAIL: $name rejected without '$substring'"
     fails=$((fails+1))
   fi
+  # A fixture with a .expected file pins its whole rendering: order,
+  # positions, and carets, with the fixture path abstracted.
+  if [ -f "$here/$name.expected" ]; then
+    dir=$(cd "$here/$name" && pwd)
+    if ! sed "s|$dir|\$DIR|g" "$tmp/err" | \
+      diff -q - "$here/$name.expected" >/dev/null
+    then
+      echo "PROBE FAIL: $name rendering differs from $name.expected"
+      sed "s|$dir|\$DIR|g" "$tmp/err" | \
+        diff - "$here/$name.expected" | head -10
+      fails=$((fails+1))
+    fi
+  fi
 done < "$here/expected.tsv"
+
+# The CLI contract: usage errors exit 1, distinct from both verdicts.
+cli_check() {
+  code=0
+  "$checker" "$@" >/dev/null 2>&1 || code=$?
+  if [ "$code" != "$cli_want" ]; then
+    echo "PROBE FAIL: checker $* expected exit $cli_want got $code"
+    fails=$((fails+1))
+  fi
+}
+cli_want=0 cli_check --help
+cli_want=1 cli_check --bogus-option
+cli_want=1 cli_check "$here/clean_minimal" extra_positional
+cli_want=1 cli_check --batch=/nonexistent-list "$here/clean_minimal"
+cli_want=1 cli_check --path=
+cli_want=1 cli_check
 
 # The batch driver must agree with the single runs, case by case.
 ( cd "$here" && printf '%s\n' $dirs ) > "$tmp/cases"

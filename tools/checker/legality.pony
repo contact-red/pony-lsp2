@@ -419,38 +419,24 @@ primitive CheckLegality
                 "on the same line")
           end
         else
-          if not tree.is_leaf(child)? then
-            match prev_stmt
-            | let _: USize =>
-              if (not semi_since_prev) and (not newline_since_prev) then
-                _diag(file, child, at, width, out,
-                  "Use a semi colon to separate expressions on the same " +
-                    "line")
-              end
+          // Every statement -- node or leaf, a docstring included --
+          // follows the same separation rules; a docstring differs
+          // only in `_sole_statement`.
+          match prev_stmt
+          | let _: USize =>
+            if (not semi_since_prev) and (not newline_since_prev) then
+              _diag(file, child, at, width, out,
+                "Use a semi colon to separate expressions on the same " +
+                  "line")
             end
-            prev_stmt = child
-            semi_since_prev = false
-            newline_since_prev = false
+          end
+          prev_stmt = child
+          semi_since_prev = false
+          newline_since_prev = false
 
-            if kind is NdJump then
-              _jump(file, tree, child, seq, stack, parent_kind,
-                grandparent_kind, at, width, out)
-            end
-          else
-            // A leaf statement -- a literal, a docstring string, a bare
-            // reference -- follows the same separation rules as a node.
-            // A docstring differs only in `_sole_statement`.
-            match prev_stmt
-            | let _: USize =>
-              if (not semi_since_prev) and (not newline_since_prev) then
-                _diag(file, child, at, width, out,
-                  "Use a semi colon to separate expressions on the same " +
-                    "line")
-              end
-            end
-            prev_stmt = child
-            semi_since_prev = false
-            newline_since_prev = false
+          if kind is NdJump then
+            _jump(file, tree, child, seq, stack, parent_kind,
+              grandparent_kind, at, width, out)
           end
         end
       end
