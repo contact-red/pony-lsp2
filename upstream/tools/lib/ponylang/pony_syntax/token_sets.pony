@@ -11,6 +11,12 @@ primitive TokenSets
     [ TkUse; TkType; TkInterface; TkTrait
       TkPrimitive; TkStruct; TkClass; TkActor ]
 
+  fun nesting_close(): Array[TokenKind] val =>
+    """
+    The tokens that close a nested region.
+    """
+    [TkRparen; TkRsquare; TkRbrace; TkEnd; TkEof]
+
   fun field_start(): Array[TokenKind] val =>
     [TkVar; TkLet; TkEmbed]
 

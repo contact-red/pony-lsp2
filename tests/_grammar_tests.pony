@@ -18,6 +18,8 @@ primitive \nodoc\ _GrammarTests is TestList
     test(_TestControlStructures)
     test(_TestEveryClauseTakesAnnotations)
     test(_TestJunkInABodyTerminates)
+    test(_TestNestingPastTheLimitIsRefused)
+    test(_TestRefusalRecoveryResumes)
 
 primitive \nodoc\ _Find
   fun text(h: TestHelper, tree: SyntaxTree val, kind: NodeKind)
@@ -373,3 +375,163 @@ class \nodoc\ iso _TestJunkInABodyTerminates is UnitTest
     h.assert_ne[USize](0, tree.diagnostics.size(), "no diagnostic")
     h.assert_eq[USize](1, _Find.count(tree, NdMethod),
       "the method was lost")
+
+class \nodoc\ iso _TestNestingPastTheLimitIsRefused is UnitTest
+  fun name(): String => "grammar/nesting past the limit is refused"
+
+  fun apply(h: TestHelper) =>
+    """
+    Each recursion shape at its exact boundary, both legs: the deepest
+    depth the guard admits parses clean, one more is refused with the
+    guard's own diagnostic, and the tree still reprints byte for byte.
+    The boundaries pin `_MaxNesting` at 2500: parentheses descend
+    through both the sequence rule and the term rule, two per source
+    level, so they meet the limit at 249; the other shapes descend
+    once per level, on top of the constant descents of their
+    enclosing declaration. Each shape exercises a different guarded
+    cycle — term, prefix, type, assignment, for-pattern, constant
+    expression — so a boundary that moves means a guard was added,
+    removed, or the limit changed. Far past the limit every shape
+    must refuse with a diagnostic rather than crash, which the deep
+    legs check.
+    """
+    _check(h, "paren", _Nested.parens(1249), _Nested.parens(1250))
+    _check(h, "prefix",
+      _Nested.prefixes(2498), _Nested.prefixes(2499))
+    _check(h, "type", _Nested.types(2499), _Nested.types(2500))
+    _check(h, "assign",
+      _Nested.assigns(2498), _Nested.assigns(2499))
+    _check(h, "idseq",
+      _Nested.for_patterns(2498), _Nested.for_patterns(2499))
+    _check(h, "constexpr",
+      _Nested.const_exprs(2496), _Nested.const_exprs(2497))
+    _check_deep(h, "paren", _Nested.parens(20_000))
+    _check_deep(h, "assign", _Nested.assigns(20_000))
+    _check_deep(h, "idseq", _Nested.for_patterns(20_000))
+    _check_deep(h, "constexpr", _Nested.const_exprs(20_000))
+
+  fun _check(
+    h: TestHelper,
+    shape: String,
+    admitted: String val,
+    refused: String val)
+  =>
+    let ok = Parse(admitted)
+    h.assert_eq[String](admitted, ok.reprint(),
+      shape + ": admitted reprint differs")
+    h.assert_eq[USize](0, ok.diagnostics.size(),
+      shape + ": the guard fired under the limit")
+
+    let bad = Parse(refused)
+    h.assert_eq[String](refused, bad.reprint(),
+      shape + ": refused reprint differs")
+    h.assert_ne[USize](0, bad.diagnostics.size(),
+      shape + ": the guard did not fire past the limit")
+    var found = false
+    for d in bad.diagnostics.values() do
+      if d.message.contains("grammar depth limit") then
+        found = true
+      end
+    end
+    h.assert_true(found,
+      shape + ": no diagnostic names the depth limit")
+
+  fun _check_deep(h: TestHelper, shape: String, refused: String val) =>
+    let tree = Parse(refused)
+    h.assert_eq[String](refused, tree.reprint(),
+      shape + ": deep reprint differs")
+    h.assert_ne[USize](0, tree.diagnostics.size(),
+      shape + ": the guard did not fire far past the limit")
+
+class \nodoc\ iso _TestRefusalRecoveryResumes is UnitTest
+  fun name(): String => "grammar/depth refusal keeps the rest of the file"
+
+  fun apply(h: TestHelper) =>
+    """
+    Refusing an over-deep region must not cost the declarations after
+    it: recovery resynchronises to a closing token, so the entity that
+    follows the refused one still parses.
+    """
+    let src: String val =
+      recover val
+        let out = String
+        out.append(_Nested.parens(1500))
+        out.append("class After\n  fun f(): U8 => 0\n")
+        out
+      end
+    let tree = Parse(src)
+    h.assert_eq[String](src, tree.reprint(), "reprint differs")
+    h.assert_ne[USize](0, tree.diagnostics.size(), "the guard did not fire")
+    var entities: USize = 0
+    for (_, _, _, kind, _) in tree.walk() do
+      if kind is NdClassDef then
+        entities = entities + 1
+      end
+    end
+    h.assert_eq[USize](2, entities,
+      "the declaration after the refused region was lost")
+
+primitive \nodoc\ _Nested
+  fun parens(depth: USize): String val =>
+    _body(recover val "(".mul(depth) + "1" + ")".mul(depth) end)
+
+  fun prefixes(depth: USize): String val =>
+    _body(recover val "not ".mul(depth) + "true" end)
+
+  fun types(depth: USize): String val =>
+    recover val
+      let out = String((depth * 3) + 16)
+      out.append("type T is ")
+      out.append("A[".mul(depth))
+      out.append("U8")
+      out.append("]".mul(depth))
+      out.push('\n')
+      out
+    end
+
+  fun assigns(depth: USize): String val =>
+    recover val
+      let out = String((depth * 4) + 80)
+      out.append("actor Main\n  new create(env: Env) =>\n")
+      out.append("    var x: U64 = 0\n    ")
+      var i: USize = 0
+      while i < depth do
+        out.append("x = ")
+        i = i + 1
+      end
+      out.append("1\n")
+      out
+    end
+
+  fun for_patterns(depth: USize): String val =>
+    recover val
+      let out = String((depth * 2) + 120)
+      out.append("actor Main\n  new create(env: Env) =>\n    None\n")
+      out.append("  fun f(b: Array[U8]): None =>\n    for ")
+      out.append("(".mul(depth))
+      out.push('a')
+      out.append(")".mul(depth))
+      out.append(" in b do None end\n")
+      out
+    end
+
+  fun const_exprs(depth: USize): String val =>
+    recover val
+      let out = String((depth * 4) + 120)
+      out.append("class F[A: Any val]\nactor Main\n")
+      out.append("  new create(env: Env) =>\n    let x = F[")
+      out.append("#F[".mul(depth))
+      out.append("U8")
+      out.append("]".mul(depth + 1))
+      out.push('\n')
+      out
+    end
+
+  fun _body(expr: String val): String val =>
+    recover val
+      let out = String(expr.size() + 64)
+      out.append("actor Main\n  new create(env: Env) =>\n    ")
+      out.append(expr)
+      out.push('\n')
+      out
+    end

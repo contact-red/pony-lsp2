@@ -10,6 +10,9 @@ primitive _TypeRule
   ponyc's `type`: an atom, optionally followed by a viewpoint.
   """
   fun apply(p: Parser ref) =>
+    if p.too_deep("type") then
+      return
+    end
     let mark = p.checkpoint()
     _AtomType(p)
     if p.at(TkArrow) then
@@ -17,6 +20,7 @@ primitive _TypeRule
       _TypeRule(p)
       p.wrap_from(mark, NdViewpoint)
     end
+    p.ascend()
 
 primitive _InfixType
   """

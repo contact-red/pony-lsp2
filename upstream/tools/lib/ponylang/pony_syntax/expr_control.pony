@@ -202,6 +202,11 @@ primitive _IdSeq
   ponyc's `idseq`: the names a `for` or a `with` binds, one or a tuple.
   """
   fun apply(p: Parser ref) =>
+    // Recurses through _IdSeqName without passing the sequence or term
+    // rules, so it carries its own descent.
+    if p.too_deep("expression") then
+      return
+    end
     p.start(NdIdSeq)
     if p.at_any(TokenSets.lparen()) then
       p.bump()
@@ -215,6 +220,7 @@ primitive _IdSeq
       _IdSeqName(p)
     end
     p.finish()
+    p.ascend()
 
 primitive _IdSeqName
   fun apply(p: Parser ref) =>

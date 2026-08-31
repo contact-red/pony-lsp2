@@ -16,6 +16,9 @@ primitive _RawSeq
   nothing at all.
   """
   fun apply(p: Parser ref) =>
+    if p.too_deep("expression") then
+      return
+    end
     p.start(NdSeq)
     _Statement(p, _ExprNormal)
     while not _SeqEnd(p.current()) do
@@ -42,6 +45,7 @@ primitive _RawSeq
       end
     end
     p.finish()
+    p.ascend()
 
 primitive _SeqEnd
   """
@@ -105,9 +109,16 @@ primitive _Assignment
     let mark = p.checkpoint()
     _Infix(p, mode)
     if p.at(TkAssign) then
+      // The recursion on the right of `=` runs after _Infix has
+      // already returned, so this branch carries its own descent —
+      // at the entry it would also count every plain statement.
+      if p.too_deep("expression") then
+        return
+      end
       p.bump()
       _Assignment(p, _ExprNormal)
       p.wrap_from(mark, NdAssign)
+      p.ascend()
     end
 
 primitive _Infix
@@ -119,14 +130,14 @@ primitive _Infix
   nesting `a + b + c` to the left as ponyc's INFIX_BUILD does.
   """
   fun apply(p: Parser ref, mode: _ExprMode) =>
-    let mark = p.checkpoint()
+    let mark = p.chain()
     _Term(p, mode)
     var going = true
     while going do
       if p.at(TkAs) then
         p.bump()
         _TypeRule(p)
-        p.wrap_from(mark, NdAsOp)
+        p.chain_wrap(mark, NdAsOp)
       elseif p.at(TkIs) or p.at(TkIsnt) or _IsBinOp(p.current()) then
         p.bump()
         // A partial operator: `a +? b`.
@@ -134,11 +145,12 @@ primitive _Infix
           p.bump()
         end
         _Term(p, _ExprNormal)
-        p.wrap_from(mark, NdBinOp)
+        p.chain_wrap(mark, NdBinOp)
       else
         going = false
       end
     end
+    p.close_chain(mark)
 
 primitive _IsBinOp
   fun apply(kind: TokenKind): Bool =>
@@ -160,6 +172,13 @@ primitive _Term
   ponyc's `term`: a control structure, a `consume`, or a pattern.
   """
   fun apply(p: Parser ref, mode: _ExprMode) =>
+    // Every expression-level descent passes through this rule, control
+    // structures in condition position included, so the depth guard
+    // here covers what the guard in the sequence rule cannot: nesting
+    // that never opens a new sequence.
+    if p.too_deep("expression") then
+      return
+    end
     let kind = p.current()
     match kind
     | TkIf =>
@@ -183,6 +202,7 @@ primitive _Term
     else
       _Pattern(p, mode)
     end
+    p.ascend()
 
 primitive _Pattern
   """
@@ -216,10 +236,16 @@ primitive _ParamPattern
   """
   fun apply(p: Parser ref, mode: _ExprMode) =>
     if _IsPrefixOp(p.current(), mode) then
+      // A prefix chain recurses here without passing the sequence rule
+      // or `_Term`, so it carries its own descent.
+      if p.too_deep("expression") then
+        return
+      end
       p.start(NdUnaryOp)
       p.bump()
       _ParamPattern(p, _ExprNormal)
       p.finish()
+      p.ascend()
     else
       _Postfix(p, mode)
     end
@@ -246,7 +272,7 @@ primitive _Postfix
   arguments and calls applied to it.
   """
   fun apply(p: Parser ref, mode: _ExprMode) =>
-    let mark = p.checkpoint()
+    let mark = p.chain()
     _Atom(p, mode)
 
     // Each operator wraps everything so far, so `x.y.z(k)` nests to the
@@ -263,17 +289,18 @@ primitive _Postfix
           end
         p.bump()
         p.expect(TkId, "a member name")
-        p.wrap_from(mark, kind)
+        p.chain_wrap(mark, kind)
       elseif p.at(TkLsquare) then
         _TypeArgs(p)
-        p.wrap_from(mark, NdQualify)
+        p.chain_wrap(mark, NdQualify)
       elseif p.at(TkLparen) then
         _Call(p)
-        p.wrap_from(mark, NdCall)
+        p.chain_wrap(mark, NdCall)
       else
         going = false
       end
     end
+    p.close_chain(mark)
 
 primitive _Call
   """
@@ -332,7 +359,13 @@ primitive _ConstExpr
   ponyc's `const_expr`: a `#` and the expression it makes constant.
   """
   fun apply(p: Parser ref) =>
+    // Reached from a type argument without passing the sequence or
+    // term rules, so it carries its own descent.
+    if p.too_deep("expression") then
+      return
+    end
     p.start(NdConstExpr)
     p.bump()
     _Postfix(p, _ExprNormal)
     p.finish()
+    p.ascend()

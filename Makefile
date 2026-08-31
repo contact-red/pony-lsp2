@@ -11,11 +11,19 @@ BRIDGE     := $(LIBS)/pony_compiler
 PATHS      := --path $(BRIDGE) --path $(LIBS) --path $(PONYC_LIB)
 
 .PHONY: all test syntax-test lsp lsp-test tools corpus mutants bind bench \
-  clean FORCE
+  types corpus-cases pass-reach memo-pays checker checker-probes \
+  checker-stdlib checker-corpus column-oracle message-oracle \
+  grammar-guard clean FORCE
 
 all: test
 
-test: syntax-test lsp-test
+test: grammar-guard syntax-test lsp-test checker-probes checker-stdlib
+
+# Every grammar recursion cycle must contain a depth-guarded rule; a
+# rule that opens an unguarded cycle fails here instead of crashing on
+# a deep enough file.
+grammar-guard:
+	python3 tools/grammar_guard.py upstream/tools/lib/ponylang/pony_syntax
 
 # The syntax tree, the parser and the analysis layer.
 syntax-test:
@@ -93,6 +101,90 @@ bench:
 	ponyc -b actor-latency -o build tools/actor_latency
 	./build/memo-bench
 	./build/actor-latency
+
+# What content-addressed type identity costs: the fourth measurement
+# DESIGN.md question 2 listed and did not take. See SEMANTIC_DESIGN.md.
+types:
+	ponyc -b type-hash -o build tools/type_hash
+	./build/type-hash
+
+# ponyc's own unit tests as a corpus of accept/reject verdicts, and the
+# per-case instrument recording what ponyc empirically does with each. See
+# SEMANTIC_DESIGN.md's first-slice section and tools/corpus/README.md.
+CORPUS_CASES ?= build/corpus_cases
+
+corpus-cases:
+	python3 tools/corpus/extract_corpus.py $(PONYC_ROOT) $(CORPUS_CASES)
+
+pass-reach: corpus-cases
+	python3 tools/corpus/pass_reach.py $(CORPUS_CASES)
+
+# Whether memoizing a subtype decision pays for a batch checker, which is
+# what FINDINGS.md's "The fork" says it does not. See tools/memo_pays.
+memo-pays:
+	ponyc -b memo-pays -o build tools/memo_pays
+	./build/memo-pays
+
+# The slice-0 checker: build it, run the corpus through it, and score the
+# verdicts per case. See tools/checker and SEMANTIC_DESIGN.md.
+checker:
+	ponyc -b checker -o build tools/checker
+
+checker-probes: checker
+	tools/checker/probes/run.sh ./build/checker "$(PONYC_ROOT)/packages"
+
+# Every package in ponyc's standard library must check clean: the gate the
+# corpus cannot provide, because no corpus case uses a stdlib package
+# beyond builtin.
+checker-stdlib: checker
+	@find "$(PONYC_ROOT)/packages" -name '*.pony' -not -name '.*' \
+	  | xargs -d '\n' -n1 dirname | sort -u > build/stdlib_dirs.txt
+	@test -s build/stdlib_dirs.txt || \
+	  { echo "no packages under $(PONYC_ROOT)/packages"; exit 1; }
+	@./build/checker --batch=build/stdlib_dirs.txt \
+	  --path="$(PONYC_ROOT)/packages" > build/stdlib_verdicts.tsv
+	@dirs=$$(wc -l < build/stdlib_dirs.txt); \
+	got=$$(wc -l < build/stdlib_verdicts.tsv); \
+	[ "$$dirs" -eq "$$got" ] || \
+	  { echo "stdlib: $$got verdicts for $$dirs packages"; exit 1; }
+	@fails=$$(awk -F'\t' '$$2 != "ok"' build/stdlib_verdicts.tsv | wc -l); \
+	if [ "$$fails" -ne 0 ]; then \
+	  awk -F'\t' '$$2 != "ok" { print "STDLIB FAIL: " $$1 }' \
+	    build/stdlib_verdicts.tsv; \
+	  awk -F'\t' '$$2 != "ok" { print $$1 }' build/stdlib_verdicts.tsv | \
+	  while read -r d; do \
+	    ./build/checker "$$d" --path="$(PONYC_ROOT)/packages" || true; \
+	  done; \
+	  echo "stdlib: $$fails packages failed"; exit 1; \
+	else \
+	  echo "stdlib: all packages clean"; \
+	fi
+
+# Reasons, not just verdicts: an agreed rejection whose manifest row
+# carries ponyc's expected message must emit that message, so a case
+# rejected for the wrong reason fails instead of scoring as agreement.
+message-oracle: checker
+	@test -f $(CORPUS_CASES)/reach.tsv || \
+	  { echo "no reach.tsv: run 'make pass-reach' once first"; exit 1; }
+	python3 tools/corpus/message_oracle.py $(CORPUS_CASES) \
+	  ./build/checker "$(PONYC_ROOT)/packages"
+
+# Positions, not just verdicts: wherever the checker and ponyc emit the
+# same message on a reject case, the line and column must match.
+column-oracle: checker
+	@test -f $(CORPUS_CASES)/reach.tsv || \
+	  { echo "no reach.tsv: run 'make pass-reach' once first"; exit 1; }
+	python3 tools/corpus/column_oracle.py $(CORPUS_CASES) \
+	  ./build/checker "$(PONYC_ROOT)/packages"
+
+checker-corpus: checker corpus-cases
+	@test -f $(CORPUS_CASES)/reach.tsv || \
+	  { echo "no reach.tsv: run 'make pass-reach' once first"; exit 1; }
+	cut -f5 $(CORPUS_CASES)/manifest.tsv > build/case_dirs.txt
+	./build/checker --batch=build/case_dirs.txt \
+	  --path=$(PONYC_ROOT)/packages > build/checker_verdicts.tsv
+	python3 tools/corpus/corpus_report.py $(CORPUS_CASES)/manifest.tsv \
+	  build/checker_verdicts.tsv --reach=$(CORPUS_CASES)/reach.tsv
 
 clean:
 	rm -rf build

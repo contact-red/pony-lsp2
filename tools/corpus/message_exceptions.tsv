@@ -1,0 +1,4 @@
+# Agreed rejections whose reason deliberately differs from ponyc's.
+# suite	test	reason
+parse_expr	JumpTerminatesAnnotatedSequence	ponyc abandons the try and reports it unterminated; the tolerant parser recovers at the semicolon, reports the semicolon, and still finds the end
+parse_expr	SemicolonAfterBreakRejected	ponyc abandons the while and reports it unterminated; the tolerant parser recovers at the semicolon, reports the semicolon, and still finds the end
