@@ -130,14 +130,14 @@ primitive _Infix
   nesting `a + b + c` to the left as ponyc's INFIX_BUILD does.
   """
   fun apply(p: Parser ref, mode: _ExprMode) =>
-    let mark = p.checkpoint()
+    let mark = p.chain()
     _Term(p, mode)
     var going = true
     while going do
       if p.at(TkAs) then
         p.bump()
         _TypeRule(p)
-        p.wrap_from(mark, NdAsOp)
+        p.chain_wrap(mark, NdAsOp)
       elseif p.at(TkIs) or p.at(TkIsnt) or _IsBinOp(p.current()) then
         p.bump()
         // A partial operator: `a +? b`.
@@ -145,11 +145,12 @@ primitive _Infix
           p.bump()
         end
         _Term(p, _ExprNormal)
-        p.wrap_from(mark, NdBinOp)
+        p.chain_wrap(mark, NdBinOp)
       else
         going = false
       end
     end
+    p.close_chain(mark)
 
 primitive _IsBinOp
   fun apply(kind: TokenKind): Bool =>
@@ -271,7 +272,7 @@ primitive _Postfix
   arguments and calls applied to it.
   """
   fun apply(p: Parser ref, mode: _ExprMode) =>
-    let mark = p.checkpoint()
+    let mark = p.chain()
     _Atom(p, mode)
 
     // Each operator wraps everything so far, so `x.y.z(k)` nests to the
@@ -288,17 +289,18 @@ primitive _Postfix
           end
         p.bump()
         p.expect(TkId, "a member name")
-        p.wrap_from(mark, kind)
+        p.chain_wrap(mark, kind)
       elseif p.at(TkLsquare) then
         _TypeArgs(p)
-        p.wrap_from(mark, NdQualify)
+        p.chain_wrap(mark, NdQualify)
       elseif p.at(TkLparen) then
         _Call(p)
-        p.wrap_from(mark, NdCall)
+        p.chain_wrap(mark, NdCall)
       else
         going = false
       end
     end
+    p.close_chain(mark)
 
 primitive _Call
   """

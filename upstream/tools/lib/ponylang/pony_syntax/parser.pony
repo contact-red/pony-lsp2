@@ -10,6 +10,25 @@ primitive _MaxNesting
   """
   fun apply(): USize => 2500
 
+class _Chain
+  """
+  One rule's pending chain wrappers: the mark they share, and the
+  wrapper elements `close_chain` will lay down there.
+  """
+  let index: USize
+  let from: USize
+  embed wraps: Array[(SyntaxKind, U32, U32)] =
+    Array[(SyntaxKind, U32, U32)]
+
+  new create(index': USize, from': USize) =>
+    index = index'
+    from = from'
+
+  fun ref record(k: NodeKind, width: U32, size: USize) =>
+    // The subtree covers the wrappers recorded before this one plus
+    // itself, on top of the elements parsed since the mark.
+    wraps.push((k, width, ((size - index) + wraps.size() + 1).u32()))
+
 class Parser
   """
   A cursor over the significant tokens of a source, and a builder for the
@@ -248,12 +267,66 @@ class Parser
 
     Safe against the open stack because every open node was opened before
     the mark, so inserting at it shifts none of their indices.
+
+    Each call shifts every element after the mark, so a rule that wraps
+    once per operator of an unbounded chain uses `chain` instead.
     """
     (let index, let from) = mark
     try
       _elems.insert(
         index,
         (k, (_offset - from).u32(), ((_elems.size() - index) + 1).u32()))?
+    end
+
+  fun ref chain(): _Chain =>
+    """
+    Like `checkpoint`, for a rule that wraps at one mark once per
+    operator of an unbounded chain. `chain_wrap` records what
+    `wrap_from` would have inserted, and `close_chain` lays every
+    recorded wrapper down at the mark in one pass — the tail after the
+    mark shifts once per chain instead of once per operator, which is
+    what kept a long flat chain from costing the square of its length.
+    """
+    flush_trivia()
+    _Chain(_elems.size(), _offset)
+
+  fun ref chain_wrap(c: _Chain, k: NodeKind) =>
+    """
+    Record a wrapper of kind `k` around everything parsed since the
+    chain's mark, to be laid down by `close_chain`.
+    """
+    c.record(k, (_offset - c.from).u32(), _elems.size())
+
+  fun ref close_chain(c: _Chain) =>
+    """
+    Lay the chain's recorded wrappers down at its mark, outermost
+    first, exactly as the same sequence of `wrap_from` calls would
+    have. A chain with no recorded wrapper changes nothing.
+    """
+    let k = c.wraps.size()
+    if k == 0 then
+      return
+    end
+    // Grow by k, shift the tail up in one backward pass, and write the
+    // wrappers into the gap in reverse record order: the last recorded
+    // wrapper covers the whole chain, so it comes first in pre-order.
+    let old_size = _elems.size()
+    var i: USize = 0
+    while i < k do
+      _elems.push((NdError, 0, 0))
+      i = i + 1
+    end
+    try
+      var j = old_size
+      while j > c.index do
+        j = j - 1
+        _elems(j + k)? = _elems(j)?
+      end
+      var w: USize = 0
+      while w < k do
+        _elems(c.index + w)? = c.wraps(k - 1 - w)?
+        w = w + 1
+      end
     end
 
   fun ref bump() =>
