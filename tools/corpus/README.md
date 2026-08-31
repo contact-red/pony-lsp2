@@ -5,9 +5,13 @@ ponyc is asserted to reach. `extract_corpus.py` writes each one out as a
 package directory with a manifest saying whether ponyc accepts or rejects it,
 so a checker can be run over the same programs and compared.
 
-`extract_corpus.py` and `corpus_report.py` are ponyq's, unmodified. They read
-ponyc's tests and compare verdict files, and neither mentions Rust or Pony, so
-the port is the step between them: a checker that takes a package and exits 0
+`extract_corpus.py` and `corpus_report.py` started as ponyq's scripts. Both
+have since been extended here: the extractor records each case's own target
+pass -- read from its verdict macro's define, or from the call site where the
+suite passes it per invocation -- and the report refuses to score a verdict
+file with cases missing, so a mid-batch crash fails loudly instead of
+yielding an agreement rate over the surviving prefix. Neither mentions Rust
+or Pony; the step between them is a checker that takes a package and exits 0
 or non-zero.
 
 ## Running it
@@ -21,34 +25,38 @@ produces one yet, because the checker it would run does not exist.
 ## What the extraction leaves out
 
 A `TEST_F` that needs more than one source file, replaces `builtin`, or
-compares ASTs is not a plain verdict on one program, so it is skipped. 1,416
-cases come out and 183 are skipped.
+compares ASTs is not a plain verdict on one program, so it is skipped. A case
+that survives extraction but where standalone ponyc disagrees with the
+verdict its own test asserts -- the known shape redeclares a builtin name,
+which the unit-test harness tolerates and a standalone compile does not -- is
+detected by `pass_reach.py` and excluded from every number as invalid.
 
 ## Reading agreement
 
 Agreement counts both verdicts, so a checker that finds nothing wrong agrees
-with every case ponyc accepts. On this corpus that is 46.1% before any rule is
-written, and any agreement figure has to be read against it -- including
-ponyq's 49.5%.
+with every case ponyc accepts. Nearly half of this corpus is accepts, so any
+agreement figure has to be read against that floor -- `pass_reach.py` prints
+it -- and what a checker is worth is the rejections it adds above it.
 
-## What a checker can reach without bodies
+## The per-case instrument
 
-`pass_reach.py` answers this from ponyc rather than from a checker that does
-not exist yet. Signature checking is everything at or before ponyc's `traits`
-pass and body checking is `expr`, so a case ponyc rejects with `--pass=traits`
-is one a signature-only checker could reject, and a case that survives is one
-it could not.
+`pass_reach.py` records, per case, what ponyc empirically does: an accept
+case is compiled to its own target pass to confirm it really compiles; a
+reject case is probed up ponyc's pass ladder to find the earliest pass that
+errors on it, which is the layer of a checker that could reject it. The
+records go to `reach.tsv` beside the manifest, so a later run diffs per case
+instead of comparing aggregates, and a single case changing hands is a named
+regression rather than a 0.1-point wobble.
 
-Cases whose own suite stops before `traits` are excluded. ponyc never runs
-those passes for them, so the comparison would be against something ponyc does
-not do.
+The summary attributes each reachable rejection to the design's slices --
+parse and syntax legality; name-level errors; the signature layer -- and
+counts what needs bodies. It also reports which rejections ponyc decides via
+its #1216 recursion-divergence guard, because `SEMANTIC_DESIGN.md` carries an
+open decision on whether to match that guard's conservatism bug-for-bug, and
+the count is what prices it.
 
-The headline numbers here — a 54.3% ceiling against a 46.1% floor — are
-what this script computes at its `--pass=traits` cut. That cut also runs ponyc
-passes a signature-only checker does not contain, so it overstates such a
-checker's ceiling; `SEMANTIC_DESIGN.md`'s first-slice section carries the
-per-slice numbers derived from the per-case split.
-
-The three cases ponyc accepts but errors on at `traits` are the measurement's
-own noise. Each is a program whose suite targets an earlier pass, so running
-further reaches an error the test never asked about.
+An earlier version of this instrument stopped every case at `--pass=traits`
+and excluded whole suites by their `TEST_COMPILE` define. That cut ran ponyc
+passes a signature-only checker does not contain and dropped suites whose
+pass was declared per call site, so its headline ceiling overstated the
+slice; the per-case ladder replaces it.

@@ -68,27 +68,62 @@ def sources(body):
     return out
 
 
-def verdict(body):
-    """The expected verdict, the source variable, and ponyc's first message."""
+def macro_defs(text):
+    """Each verdict macro's parameter names and embedded pass, from its
+    #define.
+
+    Three shapes exist in the suites. A one-argument define embeds the pass
+    in its body (`#define TEST_ERROR(src) DO(test_error(src, "flatten"))`).
+    A define whose second parameter is named `pass` takes it per call
+    (`#define TEST_COMPILE(src, pass) ...`). Any other extra parameter is a
+    message, never a pass -- `TEST_ERROR(src, err)` exists -- which is why
+    the parameter *names* are read rather than the arity.
+    """
+    defs = {}
+    for m in re.finditer(
+        r"#define\s+(TEST_\w+)\s*\(([^)]*)\)((?:[^\n]*\\\n)*[^\n]*)",
+        text,
+    ):
+        name = m.group(1)
+        params = [x.strip() for x in m.group(2).split(",") if x.strip()]
+        # The pass is the string literal handed to the test_* helper in the
+        # body, wherever the continuation lines put it.
+        body_pass = re.search(
+            r"test_\w+\(src,\s*\"(\w+)\"", m.group(3)
+        )
+        defs[name] = (params, body_pass.group(1) if body_pass else None)
+    return defs
+
+
+def case_pass(macro, rest, defs):
+    """The pass one macro invocation runs to, or "?" when unrecoverable."""
+    params, embedded = defs.get(macro, ([], None))
+    if len(params) >= 2 and params[1] == "pass":
+        m = STRING_PIECE.search(rest)
+        return m.group(1) if m else "?"
+    return embedded or "?"
+
+
+def verdict(body, defs):
+    """The expected verdict, source variable, pass, and ponyc's message."""
     for m in re.finditer(r"\b(TEST_\w+)\s*\(\s*(\w+)([^;]*)", body):
         macro, var, rest = m.group(1), m.group(2), m.group(3)
 
         if macro in ACCEPT:
-            return "accept", var, ""
+            return "accept", var, case_pass(macro, rest, defs), ""
 
         if macro in REJECT:
+            params, _ = defs.get(macro, ([], None))
             msgs = STRING_PIECE.findall(rest)
-            return "reject", var, unescape(msgs[0]) if msgs else ""
+            # When the define takes the pass per call it is the first
+            # string; the expected message, if any, follows it.
+            if len(params) >= 2 and params[1] == "pass":
+                message = unescape(msgs[1]) if len(msgs) > 1 else ""
+            else:
+                message = unescape(msgs[0]) if msgs else ""
+            return "reject", var, case_pass(macro, rest, defs), message
 
-    return None, None, ""
-
-
-def pass_of(text, macro):
-    """The compiler pass a file's macro runs to."""
-    m = re.search(
-        r"#define\s+%s\(src\)\s+DO\(test_compile\(src,\s*\"(\w+)\"\)\)" % macro, text
-    )
-    return m.group(1) if m else "?"
+    return None, None, "?", ""
 
 
 def main():
@@ -112,14 +147,14 @@ def main():
             continue
 
         text = open(os.path.join(test_dir, name), encoding="utf8").read()
-        suite_pass = pass_of(text, "TEST_COMPILE")
+        defs = macro_defs(text)
 
         for test, body in blocks(text):
             if SKIP_CALLS.search(body):
                 skipped += 1
                 continue
 
-            expect, var, message = verdict(body)
+            expect, var, case_target, message = verdict(body, defs)
 
             if expect is None:
                 continue
@@ -136,7 +171,7 @@ def main():
             with open(os.path.join(case, "main.pony"), "w", encoding="utf8") as f:
                 f.write(srcs[var])
 
-            manifest.append((suite, test, expect, suite_pass, case, message))
+            manifest.append((suite, test, expect, case_target, case, message))
 
     with open(os.path.join(out_dir, "manifest.tsv"), "w", encoding="utf8") as f:
         for row in manifest:

@@ -323,8 +323,12 @@ the checker accepts programs ponyc rejects. The shortcut's answer is the
 semantically correct one; ponyc's is the conservative bail it documents
 as issue #1216. The options are bug-compatibility (refuse the shortcut on
 guard-eligible shapes and bail as ponyc does) or correctness with the
-divergence documented and the corpus cost measured. How often the corpus
-exercises the class is *unverified*.
+divergence documented. The corpus cost is now measured and it is zero:
+exactly two corpus rejections are guard-decided, both genuinely growing
+chains (`Iter[(B, A)]`, `I[I[A]]`) that the verbatim guard port rejects
+identically, and no corpus case sits in the divergence class itself. The
+choice is corpus-free; what it decides is behaviour on user code that
+reaches the class.
 
 **The reflexive shortcut** answers `sub is sup` as `true` before the
 memo, ported from the working PoC (`subtype.rs:1251-1330`) in its
@@ -412,12 +416,14 @@ it never noticed:
 
 Three slices, each a working binary over the full harness, each with its
 ceiling measured by a proxy that matches its own cut. The first
-implementation act is rebuilding the instrument (divergence 5) and
-re-measuring; every number below is provisional until then. If the
-re-measured total collapses toward the signature layer's 3.5 points, the
-slice question reopens to Red — it was his call once already (the earlier
-tension: whether signatures is the right first slice at its corrected,
-much lower ceiling).
+implementation act was rebuilding the instrument (divergence 5) and
+re-measuring, and it is done: the numbers below are measured, per case,
+over the 1,363 valid cases (59 invalid excluded and listed by the
+instrument; the measured floor is 45.0%). The reopen trigger — a collapse
+toward the signature layer's 3.5 points — did not fire; the ceilings
+roughly doubled instead, because the old instrument excluded whole suites
+whose target pass was declared per call site, the 126-case `syntax` suite
+among them.
 
 **Slice 0 — driver, loader, parse and syntax legality.** The binary; the
 `--batch` contract verbatim ponyq's, so the harness scripts run
@@ -426,34 +432,35 @@ mode exits 0 clean / 255 with ponyc-shaped errors off `LineIndex(Utf8)`;
 internal failure exits 1, distinct from both verdicts — a crash must
 never manufacture one); the loader; the parser depth guard (divergence
 4); and ponyc's `syntax`-pass legality rules — body-free shape checks
-over the existing lossless tree. Proxy: cases whose earliest erroring
-pass is `syntax`: 37–43 rejections, +3.2–3.7 points (*unverified*; the
-per-case audit in this slice settles the range, and whether the tolerant
-parser converts facts to these verdicts is the open caveat this slice
-closes).
+over the existing lossless tree. Measured: 130 rejections error at
+`parse` or `syntax`, **+9.5 points**. Whether the deliberately tolerant
+parser converts its facts into all 130 verdicts is the open caveat this
+slice closes.
 
 **Slice 1 — name errors.** `pony_bind` wired to the loader: unresolved
 names and unresolved `use`s as diagnostics (the `fail` side of the
 verdict split — nothing here scores as `load-failed`, so no case is
-double-booked). Proxy: earliest pass in `sugar`/`scope`/`import`/`name`:
-≤15 rejections, ≤+1.3 (*unverified* how many are body-free).
+double-booked). Measured: 42 rejections error in
+`sugar`/`scope`/`import`/`name`, **+3.1 points** (*unverified* how many
+are body-free).
 
 **Slice 2 — signatures.** The IR, lowering with canonicalisation, the
 capability algebra (pure table ports), `method_table` with synthesis,
 **the type-alias recursion legality check** (ponyc's dedicated pass;
 ponyq stack-overflowed until it ported the rule; 3 corpus rejections and
 a crash risk without it), reification as a plain function, the subtype
-evaluator, provides and constraint checking under the phase rule. Proxy:
-earliest pass in `typealias_recursion`/`flatten`/`traits`: 41 rejections,
-+3.5. The ~26 signature-level checks ponyc reports from its `expr` pass
-are unverified upside, excluded from every ceiling until a per-case audit
-separates them from body machinery.
+evaluator, provides and constraint checking under the phase rule.
+Measured: 50 rejections error in `typealias_recursion`/`flatten`/
+`traits`, **+3.7 points**. The ~26 signature-level checks ponyc reports
+from its `expr` pass are unverified upside, excluded from every ceiling
+until a per-case audit separates them from body machinery; 527 measured
+rejections need `refer` or later.
 
-Cumulative honest ceiling: roughly 93–99 rejections, ~+8 points over the
-46.1% floor, assuming zero false rejections — and every false rejection
-costs a point, which is what put ponyq's 99 nearly on the floor. The
-per-slice gates (stdlib clean, tree parses, `sig_agreement` empty after
-normalization) are the false-rejection defence.
+Cumulative measured ceiling: 836 of 1,363 — **61.3%, +16.3 points over
+the 45.0% floor** — assuming zero false rejections, and every false
+rejection costs a point, which is what put ponyq's 99 nearly on the
+floor. The per-slice gates (stdlib clean, tree parses, `sig_agreement`
+empty after normalization) are the false-rejection defence.
 
 Bodies cannot precede signatures — `body_types` reads signatures and no
 other body (`FINDINGS.md`) — but nothing says signatures must precede the
@@ -567,10 +574,10 @@ not agreement, and one body cannot drift from itself.
 
 ## Unverified claims (complete list)
 
-1. The slice arithmetic sums audited per-pass splits without one
-   re-measurement on the rebuilt instrument; re-measuring is the first
-   implementation act, and a collapse toward +3.5 reopens the slice
-   question to Red.
+1. Whether the tolerant parser converts its facts into slice 0's 130
+   measured verdicts — the slice ceilings themselves are now measured
+   per case (`tools/corpus/reach.tsv`), and the reopen trigger did not
+   fire.
 2. That discard-only's in-cycle re-derivation is affordable — the counter
    at the stdlib gate answers it; ponyc's conditional-read gates are the
    fallback.
@@ -580,10 +587,11 @@ not agreement, and one body cannot drift from itself.
    its conditions" until then.
 4. The composed construction-path cost (dedup probe with custom hash on
    the real map shape) — one benchmark variant, mostly existing code.
-5. How many of the ≤15 name-level rejections are body-free.
-6. How often the corpus exercises the guard-versus-shortcut divergence
-   class (open decision above), and the work budget's value — both set
-   from measurement at the slice-2 gate.
+5. How many of the 42 name-level rejections are body-free.
+6. The work budget's value, set from measurement at the slice-2 gate.
+   (The guard-divergence corpus frequency is measured: zero cases in the
+   class; two guard-decided rejections, both handled identically by the
+   ported guard.)
 7. The cross-case memo partition's invariant (root-package content
    immutable within a run) — gated empirically by the cross-case
    `--paranoid` sweep.
@@ -595,7 +603,8 @@ not agreement, and one body cannot drift from itself.
 ## Kept from the first candidate
 
 The IR shape and its four decisions; the sugar split and the `Less is
-Equatable[Compare]` test; the 46.1% floor framing; diagnostics as result
+Equatable[Compare]` test; the floor framing (measured at 45.0% on the
+per-case instrument's valid universe); diagnostics as result
 fields; `ErrorTy` failing closed; the `--batch` CLI contract; driver exit
 codes; the reason-sink explainer direction. Dropped across the two
 evaluation rounds: digest-as-identity and its collision analysis; the

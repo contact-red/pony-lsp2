@@ -1,63 +1,59 @@
 #!/usr/bin/env python3
-"""How much of ponyc's corpus a checker can decide without checking bodies.
+"""The per-case corpus instrument.
 
-`SEMANTIC_DESIGN.md` question 5 proposes a first slice that lowers types,
-builds method tables, reifies and subtypes, and does not look inside a method
-body. What that slice can reach is not a guess: ponyc's own pass order answers
-it. Everything the slice does happens at or before ponyc's `traits` pass, and
-body checking is `expr`. So a case ponyc rejects by the end of `traits` is one
-the slice could reject too, and a case that survives to `expr` is one it
-cannot.
+For every extracted case this records, empirically, what ponyc does with
+it: whether an accept case really compiles to its own target pass, the
+earliest pass at which a reject case errors, and whether the rejection
+came from the #1216 recursion-divergence guard. The summary numbers are
+derived from the per-case records, and the records are written to
+`reach.tsv` beside the manifest so a later run can be diffed per case
+rather than compared as an aggregate.
 
-Agreement counts both verdicts. A case ponyc accepts is one a permissive
-checker agrees with by finding nothing wrong, so the ceiling is every accepted
-case plus the rejections reachable before `expr`.
+A case is *invalid* when ponyc disagrees with the verdict its own test
+asserts — an accept that errors at its target pass, or a reject that does
+not. Those are extraction or environment drift (the known shape: a case
+that redeclares a builtin name compiles under the unit-test harness but
+not standalone), and they are excluded from every number and listed.
+
+Slice attribution: a reject belongs to the earliest pass that errors on
+it. Slice 0 of `SEMANTIC_DESIGN.md` covers parse and syntax legality;
+slice 1 covers sugar, scope, import and name; slice 2 covers
+typealias_recursion, flatten and traits; everything later needs bodies.
 
 Usage: pass_reach.py <corpus-dir> [--limit N]
-
-Reads `manifest.tsv` written by `extract_corpus.py`.
 """
 
+import os
+import re
 import subprocess
 import sys
-import os
 import tempfile
 
-
-LIMIT_PASS = "traits"
-
-# ponyc's pass order, from `ponyc --help`. A suite whose own target is
-# earlier than `traits` never runs the passes this measurement stops after,
-# so asking whether it errors by `traits` compares against something ponyc
-# does not itself do. Those cases are excluded and counted separately.
-PASS_ORDER = [
+LADDER = [
     "parse", "syntax", "sugar", "scope", "import", "name",
     "typealias_recursion", "flatten", "traits", "refer", "expr",
     "completeness", "verify", "final", "c", "reach", "paint", "ir",
-    "bitcode", "asm", "obj", "all",
 ]
 
+SLICE0 = {"parse", "syntax"}
+SLICE1 = {"sugar", "scope", "import", "name"}
+SLICE2 = {"typealias_recursion", "flatten", "traits"}
 
-def runs_traits(suite_pass):
-    """Whether a suite's own target pass reaches `traits`."""
-    if suite_pass not in PASS_ORDER:
-        return False
-    return PASS_ORDER.index(suite_pass) >= PASS_ORDER.index(LIMIT_PASS)
+GUARD = re.compile(r"same-def\s+frames|ponylang/ponyc#1216")
 
 
 def run(case, limit, out_dir):
-    """Whether ponyc reports an error for `case` when stopped after `limit`."""
+    """ponyc's exit and stderr for `case` stopped after `limit`."""
     try:
         done = subprocess.run(
             ["ponyc", "--pass=" + limit, "--verbose=0", "-o", out_dir, case],
             stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            timeout=60,
+            stderr=subprocess.PIPE,
+            timeout=120,
         )
     except subprocess.TimeoutExpired:
-        return None
-
-    return done.returncode != 0
+        return None, ""
+    return done.returncode != 0, done.stderr.decode("utf8", "replace")
 
 
 def main():
@@ -67,7 +63,6 @@ def main():
 
     corpus = sys.argv[1]
     limit = None
-
     if "--limit" in sys.argv:
         limit = int(sys.argv[sys.argv.index("--limit") + 1])
 
@@ -77,72 +72,98 @@ def main():
             parts = line.rstrip("\n").split("\t")
             if len(parts) >= 5:
                 rows.append(parts[:5])
-
     if limit:
         rows = rows[:limit]
 
-    excluded = [r for r in rows if not runs_traits(r[3])]
-    rows = [r for r in rows if runs_traits(r[3])]
-
-    counts = {
-        ("accept", True): 0,
-        ("accept", False): 0,
-        ("reject", True): 0,
-        ("reject", False): 0,
-    }
+    records = []
+    invalid = []
     timeouts = 0
-    early = []
 
     with tempfile.TemporaryDirectory() as out_dir:
-        for i, (suite, test, expect, _, case) in enumerate(rows):
-            errs = run(case, LIMIT_PASS, out_dir)
-
-            if errs is None:
-                timeouts += 1
+        for i, (suite, test, expect, target, case) in enumerate(rows):
+            if target not in LADDER:
+                invalid.append((suite, test, "unknown target " + target))
                 continue
+            target_i = LADDER.index(target)
 
-            counts[(expect, errs)] += 1
-
-            if (expect == "reject") and errs:
-                early.append((suite, test))
+            if expect == "accept":
+                errs, _ = run(case, target, out_dir)
+                if errs is None:
+                    timeouts += 1
+                    continue
+                if errs:
+                    invalid.append((suite, test, "accept errors at " + target))
+                    continue
+                records.append((suite, test, expect, target, "-", "-"))
+            else:
+                earliest = None
+                guard = "-"
+                for p in LADDER[: target_i + 1]:
+                    errs, stderr = run(case, p, out_dir)
+                    if errs is None:
+                        timeouts += 1
+                        earliest = "timeout"
+                        break
+                    if errs:
+                        earliest = p
+                        if GUARD.search(stderr):
+                            guard = "guard"
+                        break
+                if earliest is None:
+                    invalid.append(
+                        (suite, test, "reject clean through " + target))
+                    continue
+                if earliest == "timeout":
+                    continue
+                records.append((suite, test, expect, target, earliest, guard))
 
             if (i % 100) == 0:
                 print(f"  {i}/{len(rows)}", file=sys.stderr)
 
-    accepted = counts[("accept", True)] + counts[("accept", False)]
-    rejected = counts[("reject", True)] + counts[("reject", False)]
-    total = accepted + rejected
+    with open(os.path.join(corpus, "reach.tsv"), "w", encoding="utf8") as f:
+        for row in records:
+            f.write("\t".join(row) + "\n")
+
+    accepts = sum(1 for r in records if r[2] == "accept")
+    rejects = [r for r in records if r[2] == "reject"]
+    universe = len(records)
+    s0 = sum(1 for r in rejects if r[4] in SLICE0)
+    s1 = sum(1 for r in rejects if r[4] in SLICE1)
+    s2 = sum(1 for r in rejects if r[4] in SLICE2)
+    later = len(rejects) - s0 - s1 - s2
+    guard_hits = [r for r in rejects if r[5] == "guard"]
+
+    def pts(n):
+        return 100.0 * n / universe
 
     print()
-    print(f"cases {total}, timeouts {timeouts}, stopped after --pass={LIMIT_PASS}")
-    print(f"excluded {len(excluded)} whose own suite stops before {LIMIT_PASS}")
+    print(f"cases {len(rows)}, valid {universe}, "
+          f"invalid {len(invalid)}, timeouts {timeouts}")
+    print(f"per-case records written to reach.tsv")
     print()
-    print(f"ponyc accepts, no error by {LIMIT_PASS}: "
-          f"{counts[('accept', False)]}")
-    print(f"ponyc accepts, error by {LIMIT_PASS}:    "
-          f"{counts[('accept', True)]}  (the proxy is wrong for these)")
-    print(f"ponyc rejects, error by {LIMIT_PASS}:    "
-          f"{counts[('reject', True)]}  (reachable without bodies)")
-    print(f"ponyc rejects, no error by {LIMIT_PASS}: "
-          f"{counts[('reject', False)]}  (needs body checking)")
+    print(f"floor -- accepts, agreed with by rejecting nothing: "
+          f"{accepts}/{universe} = {pts(accepts):.1f}%")
+    print(f"slice 0 (parse, syntax):              "
+          f"{s0}  (+{pts(s0):.1f} points)")
+    print(f"slice 1 (sugar, scope, import, name): "
+          f"{s1}  (+{pts(s1):.1f} points)")
+    print(f"slice 2 (typealias, flatten, traits): "
+          f"{s2}  (+{pts(s2):.1f} points)")
+    print(f"needs bodies (refer and later):       {later}")
+    print(f"cumulative ceiling through slice 2:   "
+          f"{accepts + s0 + s1 + s2}/{universe} = "
+          f"{pts(accepts + s0 + s1 + s2):.1f}%")
     print()
+    print(f"rejections decided by the #1216 divergence guard: "
+          f"{len(guard_hits)}")
+    for suite, test, _, _, _, _ in guard_hits:
+        print(f"  {suite}/{test}")
 
-    ceiling = counts[("accept", False)] + counts[("reject", True)]
-    print(f"ceiling for a checker that stops before bodies: "
-          f"{ceiling}/{total} = {100.0 * ceiling / total:.1f}%")
-    print(f"of that, agreement bought by accepting everything: "
-          f"{accepted}/{total} = {100.0 * accepted / total:.1f}%")
-    print(f"rejections it adds over accepting everything:     "
-          f"{counts[('reject', True)]}")
-
-    by_suite = {}
-    for suite, _ in early:
-        by_suite[suite] = by_suite.get(suite, 0) + 1
-
-    print()
-    print("rejections reachable before bodies, by suite:")
-    for suite, n in sorted(by_suite.items(), key=lambda kv: -kv[1]):
-        print(f"  {suite:28s} {n}")
+    if invalid:
+        print()
+        print(f"invalid cases, excluded from every number:")
+        for suite, test, why in invalid:
+            print(f"  {suite}/{test}: {why}")
 
     return 0
 

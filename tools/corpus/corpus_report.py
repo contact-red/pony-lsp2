@@ -35,6 +35,7 @@ def main():
 
     by_suite = collections.defaultdict(lambda: [0, 0])
     disagreements = []
+    missing = []
 
     for line in open(args[0], encoding="utf8"):
         parts = line.rstrip("\n").split("\t")
@@ -47,6 +48,7 @@ def main():
         got = verdicts.get(path)
 
         if got is None:
+            missing.append((suite, test))
             continue
 
         ours = "accept" if got == "ok" else "reject"
@@ -56,6 +58,17 @@ def main():
             by_suite[suite][0] += 1
         else:
             disagreements.append((suite, test, expect, ours, cpass, message))
+
+    # A verdict file that stops early -- a mid-batch crash -- must fail
+    # loudly, not yield an agreement rate over the surviving prefix.
+    if missing:
+        print(f"INCOMPLETE: {len(missing)} manifest cases have no verdict "
+              f"line; the rate below covers only what ran.")
+        for suite, test in missing[:10]:
+            print(f"  missing: {suite}/{test}")
+        if len(missing) > 10:
+            print(f"  ... and {len(missing) - 10} more")
+        print()
 
     total_ok = sum(v[0] for v in by_suite.values())
     total = sum(v[1] for v in by_suite.values())
@@ -73,6 +86,9 @@ def main():
     print()
     print(f"{missed} rejected by ponyc and accepted here (a check not implemented)")
     print(f"{wrong} accepted by ponyc and rejected here (a rule got wrong)")
+
+    if missing:
+        return 2
 
     if "--list" in flags:
         print()

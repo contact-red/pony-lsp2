@@ -120,7 +120,7 @@ written.
 
 But agreement counts the cases ponyc accepts, and a checker that finds
 nothing wrong agrees with every one of them. Measured on this repository's
-port of the harness, accepting every program scores 46.1%. So 49.5% is
+port of the harness, accepting every program scores about 45%. So 49.5% is
 roughly three points above doing nothing at all -- assuming ponyq's corpus
 had a similar accept rate, which is unverified. The suites that
 test the type system directly do well — subtyping 90.2%, match types 100%,
@@ -136,7 +136,7 @@ a syntax-directed rule does.
 ## The measure of done
 
 **How far agreement with ponyc sits above the floor**, at every stage. Not
-agreement itself: a checker that rejects nothing scores 46.1% on this corpus,
+agreement itself: a checker that rejects nothing scores about 45% here,
 so a bare percentage mostly reports how many programs ponyc accepts. What a
 stage is worth is the rejections it adds.
 

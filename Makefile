@@ -100,9 +100,9 @@ types:
 	ponyc -b type-hash -o build tools/type_hash
 	./build/type-hash
 
-# ponyc's own unit tests as a corpus of accept/reject verdicts, and what a
-# checker that stops before method bodies can reach. See SEMANTIC_DESIGN.md
-# question 5. CORPUS_DIR keeps the extracted cases between runs.
+# ponyc's own unit tests as a corpus of accept/reject verdicts, and the
+# per-case instrument recording what ponyc empirically does with each. See
+# SEMANTIC_DESIGN.md's first-slice section and tools/corpus/README.md.
 CORPUS_CASES ?= build/corpus_cases
 
 corpus-cases:
