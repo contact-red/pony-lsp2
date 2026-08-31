@@ -12,7 +12,8 @@ primitive _TypeRule
   fun apply(p: Parser ref) =>
     if p.descend() then
       p.error_and_recover(
-        "a less deeply nested type",
+        "a less deeply nested type (grammar depth limit " +
+          _MaxNesting().string() + ")",
         TokenSets.nesting_close())
       return p.ascend()
     end

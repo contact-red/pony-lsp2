@@ -17,11 +17,9 @@ primitive _RawSeq
   """
   fun apply(p: Parser ref) =>
     if p.descend() then
-      // Refusing to descend is what keeps a hostile nesting depth a
-      // diagnostic rather than a stack overflow; the region is consumed
-      // whole and parsing resumes where it closes.
       p.error_and_recover(
-        "a less deeply nested expression",
+        "a less deeply nested expression (grammar depth limit " +
+          _MaxNesting().string() + ")",
         TokenSets.nesting_close())
       return p.ascend()
     end
@@ -170,13 +168,14 @@ primitive _Term
   ponyc's `term`: a control structure, a `consume`, or a pattern.
   """
   fun apply(p: Parser ref, mode: _ExprMode) =>
-    // The funnel every expression-level descent passes through, control
-    // structures in condition position included, so the depth guard here
-    // covers what the sequence rule's cannot: nesting that never opens a
-    // new sequence.
+    // Every expression-level descent passes through this rule, control
+    // structures in condition position included, so the depth guard
+    // here covers what the sequence rule's cannot: nesting that never
+    // opens a new sequence.
     if p.descend() then
       p.error_and_recover(
-        "a less deeply nested expression",
+        "a less deeply nested expression (grammar depth limit " +
+          _MaxNesting().string() + ")",
         TokenSets.nesting_close())
       return p.ascend()
     end
@@ -238,10 +237,11 @@ primitive _ParamPattern
   fun apply(p: Parser ref, mode: _ExprMode) =>
     if _IsPrefixOp(p.current(), mode) then
       // A prefix chain recurses here without passing the sequence rule
-      // or the funnel, so it carries its own descent.
+      // or the term rule, so it carries its own descent.
       if p.descend() then
         p.error_and_recover(
-          "a less deeply nested expression",
+          "a less deeply nested expression (grammar depth limit " +
+            _MaxNesting().string() + ")",
           TokenSets.nesting_close())
         return p.ascend()
       end

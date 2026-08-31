@@ -380,40 +380,69 @@ class \nodoc\ iso _TestNestingPastTheLimitIsRefused is UnitTest
 
   fun apply(h: TestHelper) =>
     """
-    The grammar recurses on the machine stack, so a hostile nesting depth
-    must become a diagnostic before it becomes a stack overflow. Under the
-    limit nothing fires; past it the region is refused, and the tree still
-    reprints byte for byte.
+    Each recursion shape at its exact boundary, both legs: the deepest
+    depth the guard admits parses clean, one more is refused with the
+    guard's own diagnostic, and the tree still reprints byte for byte.
+    The boundaries pin `_MaxNesting` at 500: parentheses descend through
+    both the sequence rule and the term rule, so they meet the limit at
+    250 source levels; a prefix chain descends only through the prefix
+    rule, and a type only through the type rule, so both meet it at 500.
+    A boundary that moves means a guard was added, removed, or the limit
+    changed.
     """
-    let shallow = _Nested(100)
-    let deep = _Nested(2000)
+    _check(h, "paren", _Nested.parens(249), _Nested.parens(250))
+    _check(h, "prefix", _Nested.prefixes(498), _Nested.prefixes(499))
+    _check(h, "type", _Nested.types(499), _Nested.types(500))
 
-    let ok = Parse(shallow)
-    h.assert_eq[String](shallow, ok.reprint(), "shallow reprint differs")
+  fun _check(
+    h: TestHelper,
+    shape: String,
+    admitted: String val,
+    refused: String val)
+  =>
+    let ok = Parse(admitted)
+    h.assert_eq[String](admitted, ok.reprint(),
+      shape + ": admitted reprint differs")
     h.assert_eq[USize](0, ok.diagnostics.size(),
-      "the guard fired under the limit")
+      shape + ": the guard fired under the limit")
 
-    let refused = Parse(deep)
-    h.assert_eq[String](deep, refused.reprint(), "deep reprint differs")
-    h.assert_ne[USize](0, refused.diagnostics.size(),
-      "the guard did not fire past the limit")
+    let bad = Parse(refused)
+    h.assert_eq[String](refused, bad.reprint(),
+      shape + ": refused reprint differs")
+    h.assert_ne[USize](0, bad.diagnostics.size(),
+      shape + ": the guard did not fire past the limit")
+    var found = false
+    for d in bad.diagnostics.values() do
+      if d.message.contains("grammar depth limit") then
+        found = true
+      end
+    end
+    h.assert_true(found,
+      shape + ": no diagnostic names the depth limit")
 
 primitive \nodoc\ _Nested
-  fun apply(depth: USize): String val =>
+  fun parens(depth: USize): String val =>
+    _body(recover val "(".mul(depth) + "1" + ")".mul(depth) end)
+
+  fun prefixes(depth: USize): String val =>
+    _body(recover val "not ".mul(depth) + "true" end)
+
+  fun types(depth: USize): String val =>
     recover val
-      let out = String((depth * 2) + 64)
+      let out = String((depth * 3) + 16)
+      out.append("type T is ")
+      out.append("A[".mul(depth))
+      out.append("U8")
+      out.append("]".mul(depth))
+      out.push('\n')
+      out
+    end
+
+  fun _body(expr: String val): String val =>
+    recover val
+      let out = String(expr.size() + 64)
       out.append("actor Main\n  new create(env: Env) =>\n    ")
-      var i: USize = 0
-      while i < depth do
-        out.push('(')
-        i = i + 1
-      end
-      out.push('1')
-      i = 0
-      while i < depth do
-        out.push(')')
-        i = i + 1
-      end
+      out.append(expr)
       out.push('\n')
       out
     end
