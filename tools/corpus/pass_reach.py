@@ -10,15 +10,17 @@ per-case records, and the records are written to `reach.tsv` beside the
 manifest so a later run can be diffed per case rather than compared as
 an aggregate.
 
-`reach.tsv` columns, tab-separated, no header:
+`reach.tsv` columns, tab-separated, no header, one payload column per
+row kind so no column carries two vocabularies:
   1  suite
   2  test
   3  expected verdict: accept, reject, or invalid (see below)
   4  the case's own target pass
-  5  for an accept row, `limited` when full ponyc (--pass=final)
-     rejects the case, else `-`; for a reject row, the earliest pass
-     that errors, or `timeout`; for an invalid row, the reason
-  6  `guard` when the rejection came from ponyc's #1216 divergence
+  5  accept rows: `limited` when full ponyc (--pass=final) rejects the
+     case, else `-`; `-` on other rows
+  6  reject rows: the earliest pass that errors; `-` on other rows
+  7  invalid rows: the reason; `-` on other rows
+  8  `guard` when the rejection came from ponyc's #1216 divergence
      guard, else `-`
 
 A case is *invalid* when ponyc disagrees with the verdict its own test
@@ -106,7 +108,7 @@ def main():
             if target not in LADDER:
                 invalid.append((suite, test, "unknown target " + target))
                 records.append(
-                    (suite, test, "invalid", target,
+                    (suite, test, "invalid", target, "-", "-",
                      "unknown target", "-"))
                 continue
             target_i = LADDER.index(target)
@@ -116,13 +118,14 @@ def main():
                 if errs is None:
                     timeouts += 1
                     records.append(
-                        (suite, test, "invalid", target, "timeout", "-"))
+                        (suite, test, "invalid", target, "-", "-",
+                         "timeout", "-"))
                     continue
                 if errs:
                     invalid.append(
                         (suite, test, "accept errors at " + target))
                     records.append(
-                        (suite, test, "invalid", target,
+                        (suite, test, "invalid", target, "-", "-",
                          "accept errors at " + target, "-"))
                     continue
                 # An accept is asserted only through its own target
@@ -138,13 +141,14 @@ def main():
                     if full_errs is None:
                         timeouts += 1
                         records.append(
-                            (suite, test, "invalid", target, "timeout",
-                             "-"))
+                            (suite, test, "invalid", target, "-", "-",
+                             "timeout", "-"))
                         continue
                     full = "limited" if full_errs else "-"
                 else:
                     full = "-"
-                records.append((suite, test, expect, target, full, "-"))
+                records.append(
+                    (suite, test, expect, target, full, "-", "-", "-"))
             else:
                 earliest = None
                 guard = "-"
@@ -163,15 +167,17 @@ def main():
                     invalid.append(
                         (suite, test, "reject clean through " + target))
                     records.append(
-                        (suite, test, "invalid", target,
+                        (suite, test, "invalid", target, "-", "-",
                          "reject clean through " + target, "-"))
                     continue
                 if earliest == "timeout":
                     records.append(
-                        (suite, test, "invalid", target, "timeout", "-"))
+                        (suite, test, "invalid", target, "-", "-",
+                         "timeout", "-"))
                     continue
                 records.append(
-                    (suite, test, expect, target, earliest, guard))
+                    (suite, test, expect, target, "-", earliest, "-",
+                     guard))
 
             if (i % 100) == 0:
                 print(f"  {i}/{len(rows)}", file=sys.stderr)
@@ -186,11 +192,11 @@ def main():
         1 for r in records if (r[2] == "accept") and (r[4] == "limited"))
     rejects = [r for r in records if r[2] == "reject"]
     universe = accepts + len(rejects)
-    s0 = sum(1 for r in rejects if r[4] in SLICE0)
-    s1 = sum(1 for r in rejects if r[4] in SLICE1)
-    s2 = sum(1 for r in rejects if r[4] in SLICE2)
+    s0 = sum(1 for r in rejects if r[5] in SLICE0)
+    s1 = sum(1 for r in rejects if r[5] in SLICE1)
+    s2 = sum(1 for r in rejects if r[5] in SLICE2)
     later = len(rejects) - s0 - s1 - s2
-    guard_hits = [r for r in rejects if r[5] == "guard"]
+    guard_hits = [r for r in rejects if r[7] == "guard"]
 
     def pts(n):
         return 100.0 * n / universe
@@ -220,7 +226,7 @@ def main():
     print()
     print(f"rejections decided by the #1216 divergence guard: "
           f"{len(guard_hits)}")
-    for suite, test, _, _, _, _ in guard_hits:
+    for suite, test, _, _, _, _, _, _ in guard_hits:
         print(f"  {suite}/{test}")
 
     if invalid:

@@ -49,8 +49,12 @@ def main():
             universe = set()
             for line in open(f.split("=", 1)[1], encoding="utf8"):
                 parts = line.rstrip("\n").split("\t")
-                if len(parts) < 5:
+                if not parts or parts == [""]:
                     continue
+                if len(parts) != 8:
+                    print("the reach file is not in pass_reach.py's "
+                          "eight-column format; rerun 'make pass-reach'")
+                    return 2
                 key = (parts[0], parts[1])
                 if parts[2] == "invalid":
                     # Standalone ponyc disagrees with the case's own
@@ -63,7 +67,7 @@ def main():
                 if parts[2] == "accept" and parts[4] == "limited":
                     limited.add(key)
                 if parts[2] == "reject":
-                    reject_pass[key] = parts[4]
+                    reject_pass[key] = parts[5]
 
     verdicts = {}
 
