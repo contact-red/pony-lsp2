@@ -103,6 +103,9 @@ def main():
                 # cases legitimately lack.
                 if target_i < LADDER.index("final"):
                     full_errs, _ = run(case, "final", out_dir)
+                    if full_errs is None:
+                        timeouts += 1
+                        continue
                     full = "limited" if full_errs else "-"
                 else:
                     full = "-"

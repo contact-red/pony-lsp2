@@ -11,7 +11,8 @@ BRIDGE     := $(LIBS)/pony_compiler
 PATHS      := --path $(BRIDGE) --path $(LIBS) --path $(PONYC_LIB)
 
 .PHONY: all test syntax-test lsp lsp-test tools corpus mutants bind bench \
-  types corpus-cases pass-reach memo-pays checker checker-corpus \
+  types corpus-cases pass-reach memo-pays checker checker-probes \
+  checker-corpus \
   clean FORCE
 
 all: test
@@ -123,7 +124,12 @@ memo-pays:
 checker:
 	ponyc -b checker -o build tools/checker
 
+checker-probes: checker
+	tools/checker/probes/run.sh ./build/checker $(PONYC_ROOT)/packages
+
 checker-corpus: checker corpus-cases
+	@test -f $(CORPUS_CASES)/reach.tsv || \
+	  { echo "no reach.tsv: run 'make pass-reach' once first"; exit 1; }
 	cut -f5 $(CORPUS_CASES)/manifest.tsv > build/case_dirs.txt
 	./build/checker --batch=build/case_dirs.txt \
 	  --path=$(PONYC_ROOT)/packages > build/checker_verdicts.tsv

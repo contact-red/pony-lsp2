@@ -8,12 +8,23 @@ class val UnloadableRoot
   new val create(what': String val) => what = what'
 
 class val UnreadableFile
+  """A file or directory the loader could not read."""
   let path: String val
   new val create(path': String val) => path = path'
 
 class val EmptyPackage
+  """A directory with no Pony source files in it."""
   let dir: String val
   new val create(dir': String val) => dir = dir'
+
+primitive _MaxFileBytes
+  """
+  The largest source file the loader will read: the design's per-file
+  byte cap, surfaced as a diagnostic. Roughly ten times the largest file
+  in the ponyc tree, and far below the sizes at which a pathological
+  file's tree stops being workable.
+  """
+  fun apply(): USize => 1_048_576
 
 type LoadError is (UnloadableRoot | UnreadableFile | EmptyPackage)
   """
@@ -41,17 +52,39 @@ class val CheckDiag
     message = message'
 
 class val FileData
-  """One loaded file: its text and its parse, cached across a batch."""
+  """
+  One loaded file: its text, its parse, and every per-file projection the
+  checker reads, computed once and cached across a batch -- recomputing
+  legality per case is what made a corpus run take seconds instead of
+  one.
+  """
   let path: String val
   let source: String val
   let tree: SyntaxTree val
   let uses: Array[ScannedUse] val
+  let legality: Array[CheckDiag] val
 
   new val create(path': String val, source': String val) =>
     path = path'
     source = source'
     tree = Parse(source')
     uses = ScanUses(tree)
+    legality = CheckLegality(path', source', tree)
+
+  new val too_large(path': String val) =>
+    """
+    A file past the byte cap: never read, one diagnostic.
+    """
+    path = path'
+    source = ""
+    tree = Parse("")
+    uses = ScanUses(tree)
+    legality =
+      recover val
+        [ CheckDiag(path', 0, 0,
+            "this file is larger than the checker's " +
+              _MaxFileBytes().string() + " byte limit") ]
+      end
 
 class val PackageData
   """
@@ -142,13 +175,18 @@ class Loader
         | let p: PackageData val => p
         | let e: LoadError =>
           // The root and builtin are preconditions; a dependency that
-          // cannot be read is a diagnostic on whatever named it, but a
-          // package reached only by resolution that then fails to read is
-          // rare enough to surface as the load error it is.
+          // resolved but cannot be loaded is a diagnostic in ponyc's
+          // wording for what actually went wrong.
           if (dir == root_dir) or (dir == builtin) then
             return e
           end
-          diags.push(CheckDiag(dir, 0, 0, "couldn't locate this path"))
+          let why =
+            match e
+            | let _: EmptyPackage => "no Pony source files in package"
+            else
+              "couldn't locate this path"
+            end
+          diags.push(CheckDiag(dir, 0, 0, why))
           continue
         end
       ordered.push(package)
@@ -157,6 +195,12 @@ class Loader
         for u in file.uses.values() do
           match u.scheme
           | UsePackage =>
+            if u.locator.size() == 0 then
+              diags.push(
+                CheckDiag(file.path, u.offset, u.width,
+                  "can't load package ''"))
+              continue
+            end
             match _resolve(u.locator, dir)
             | let found: String val =>
               if not seen.contains(found) then
@@ -202,11 +246,23 @@ class Loader
     try
       let entries = Directory(FilePath(_auth, dir))?.entries()?
       for entry in (consume entries).values() do
+        // ponyc's filter: a .pony suffix, not hidden, and not a
+        // directory that happens to carry the suffix.
         if (entry.size() > 5) and
           (entry.compare_sub(".pony", 5, (entry.size() - 5).isize())
-            is Equal)
+            is Equal) and
+          (not (entry.compare_sub(".", 1) is Equal))
         then
-          names.push(Path.join(dir, entry))
+          let path = Path.join(dir, entry)
+          let is_dir =
+            try
+              FileInfo(FilePath(_auth, path))?.directory
+            else
+              false
+            end
+          if not is_dir then
+            names.push(path)
+          end
         end
       end
     else
@@ -222,6 +278,11 @@ class Loader
       let source =
         try
           let f = OpenFile(FilePath(_auth, path)) as File
+          if f.size() > _MaxFileBytes() then
+            f.dispose()
+            files.push(FileData.too_large(path))
+            continue
+          end
           let text: String val =
             recover val String.from_array(f.read(f.size())) end
           f.dispose()
@@ -241,7 +302,9 @@ class Loader
     if Path.is_abs(locator) then
       return _canonical_dir(locator)
     end
-    let explicit_relative = locator.compare_sub(".", 1) is Equal
+    let explicit_relative =
+      (locator.compare_sub("./", 2) is Equal) or
+        (locator.compare_sub("../", 3) is Equal)
     match _canonical_dir(Path.join(from_dir, locator))
     | let d: String val => return d
     end

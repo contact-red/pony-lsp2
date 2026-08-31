@@ -54,7 +54,7 @@ document has unsaved changes.
 The batch checker exists and covers its first slice: the driver, the
 loader, a parser depth guard that turns hostile nesting into a diagnostic
 instead of a stack overflow, and ponyc's syntax-pass legality rules. On
-the corpus's valid cases it sits within half a point of the slice's
-measured ceiling, and every disagreement with ponyc is tracked per case.
+the corpus's valid cases it rejects nothing ponyc accepts, and every
+remaining disagreement is a not-yet-implemented check tracked per case.
 The semantic layer -- signatures, capabilities, subtyping -- is designed
 in `SEMANTIC_DESIGN.md` and not yet built.

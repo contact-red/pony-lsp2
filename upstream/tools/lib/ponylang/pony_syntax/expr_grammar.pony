@@ -171,6 +171,17 @@ primitive _Term
   ponyc's `term`: a control structure, a `consume`, or a pattern.
   """
   fun apply(p: Parser ref, mode: _ExprMode) =>
+    // The funnel every expression-level descent passes through, control
+    // structures in condition position included, so the depth guard here
+    // covers what the sequence rule's cannot: nesting that never opens a
+    // new sequence.
+    if p.descend() then
+      p.error_and_recover(
+        "an expression nested no deeper than " + _MaxNesting().string() +
+          " levels",
+        TokenSets.nesting_close())
+      return p.ascend()
+    end
     let kind = p.current()
     match kind
     | TkIf =>
@@ -194,6 +205,7 @@ primitive _Term
     else
       _Pattern(p, mode)
     end
+    p.ascend()
 
 primitive _Pattern
   """
@@ -227,10 +239,20 @@ primitive _ParamPattern
   """
   fun apply(p: Parser ref, mode: _ExprMode) =>
     if _IsPrefixOp(p.current(), mode) then
+      // A prefix chain recurses here without passing the sequence rule
+      // or the funnel, so it carries its own descent.
+      if p.descend() then
+        p.error_and_recover(
+          "an expression nested no deeper than " + _MaxNesting().string() +
+            " levels",
+          TokenSets.nesting_close())
+        return p.ascend()
+      end
       p.start(NdUnaryOp)
       p.bump()
       _ParamPattern(p, _ExprNormal)
       p.finish()
+      p.ascend()
     else
       _Postfix(p, mode)
     end

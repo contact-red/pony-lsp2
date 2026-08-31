@@ -1,0 +1,11 @@
+semi_leading_newline	fail
+semi_trailing	fail
+semi_same_line_ok	ok
+semi_missing_leaf	fail
+consume_call_dot	fail
+consume_field_ok	ok
+ffi_two_return_types	fail
+unreachable_after_return	fail
+deep_prefix_chain	fail
+guard_on_package_use	fail
+clean_minimal	ok

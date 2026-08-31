@@ -8,9 +8,10 @@ primitive CheckLegality
   `_` names, the type-alias type requirement, the provides-type shape, and
   object-literal field initialisation.
 
-  Body-level rules from the same pass — compile intrinsics, semicolon
-  placement, FFI calls in default methods — are not here yet; each lands
-  with its corpus case.
+  The body-level rules from the same pass — compile intrinsics and
+  errors, semicolon placement, FFI legality, bare lambdas, ifdef flags,
+  constraints, consume shapes, casts — live here too, each verified
+  against its corpus case.
   """
   fun apply(
     file: String val,
@@ -128,19 +129,19 @@ primitive CheckLegality
       for child in tree.children(element)? do
         match tree.kind(child)?
         | NdTypeArgs =>
-          if is_declaration then
-            var types: USize = 0
-            for arg in tree.children(child)? do
-              match tree.kind(arg)?
-              | NdNominal | NdInfixType | NdGroupedType | NdTupleType
-              | NdLambdaType | NdBareLambdaType | NdViewpoint
-              | NdThisType => types = types + 1
-              end
+          var types: USize = 0
+          for arg in tree.children(child)? do
+            match tree.kind(arg)?
+            | NdNominal | NdInfixType | NdGroupedType | NdTupleType
+            | NdLambdaType | NdBareLambdaType | NdViewpoint
+            | NdThisType => types = types + 1
             end
-            if types != 1 then
-              _diag(file, child, at, width, out,
-                "FFI functions must specify a single return type")
-            end
+          end
+          // A declaration must name exactly one return type; a call may
+          // name none, but never more than one.
+          if (types > 1) or (is_declaration and (types != 1)) then
+            _diag(file, child, at, width, out,
+              "FFI functions must specify a single return type")
           end
         | TkQuestion =>
           _diag(file, child, at, width, out,
@@ -319,7 +320,6 @@ primitive CheckLegality
       try stack(stack.size() - 2)?._2 else NdModule end
 
     var statements: USize = 0
-    var jumped = false
     var prev_stmt: (USize | None) = None
     var semi_since_prev = false
     var newline_since_prev = false
@@ -337,8 +337,16 @@ primitive CheckLegality
         | TkNestedComment => None
         | TkSemi =>
           semi_since_prev = true
-          // A semicolon that reaches a line end, or the sequence's end,
-          // separates nothing on its own line: ponyc's bad-semi flag.
+          // A semicolon separates two expressions on one line. One that
+          // follows a line break, reaches a line end, or reaches the
+          // sequence's end separates nothing: ponyc's bad-semi flag.
+          if newline_since_prev then
+            _diag(file, child, at, width, out,
+              "Unexpected semicolon, only use to separate expressions " +
+                "on the same line")
+            newline_since_prev = false
+            continue
+          end
           var j = child + 1
           var bad = j >= (seq + tree.subtree_size(seq)?)
           try
@@ -388,12 +396,6 @@ primitive CheckLegality
               _jump(file, tree, child, seq, parent_kind, grandparent_kind,
                 at, width, out)
             end
-            if jumped then
-              _diag(file, child, at, width, out, "Unreachable code")
-            end
-            if kind is NdJump then
-              jumped = _transfers(tree, child)
-            end
           elseif kind is TkString then
             // A leading docstring is not a statement for the
             // entire-body rules, but anything else leafy is.
@@ -403,6 +405,17 @@ primitive CheckLegality
             end
           else
             statements = statements + 1
+            if first_stmt is None then
+              first_stmt = child
+            end
+            match prev_stmt
+            | let _: USize =>
+              if (not semi_since_prev) and (not newline_since_prev) then
+                _diag(file, child, at, width, out,
+                  "Use a semi colon to separate expressions on the same " +
+                    "line")
+              end
+            end
             prev_stmt = child
             semi_since_prev = false
             newline_since_prev = false
@@ -429,9 +442,39 @@ primitive CheckLegality
         match tree.kind(child)?
         | TkCompileIntrinsic => keyword = TkCompileIntrinsic
         | TkCompileError => keyword = TkCompileError
+        | TkReturn | TkBreak => keyword = TkReturn
+        | TkContinue | TkError => keyword = TkContinue
         | NdSeq => value = child
         end
       end
+    end
+
+    // A jump swallows what follows it into its value sequence, so
+    // ponyc's "Unreachable code" is a bound on that sequence: one
+    // expression for `return` and `break`, none for `continue` and
+    // `error`. Anything past the bound is unreachable.
+    match keyword
+    | TkReturn | TkContinue =>
+      let bound: USize = if keyword is TkReturn then 1 else 0 end
+      match value
+      | let v: USize =>
+        try
+          var count: USize = 0
+          for part in tree.children(v)? do
+            match tree.kind(part)?
+            | TkWhitespace | TkLineComment | TkNestedComment
+            | TkSemi => None
+            else
+              count = count + 1
+              if count > bound then
+                _diag(file, part, at, width, out, "Unreachable code")
+                break
+              end
+            end
+          end
+        end
+      end
+      return
     end
 
     match keyword
@@ -747,7 +790,7 @@ primitive CheckLegality
               "can't specify a capability in a provides type")
           | TkEphemeral | TkAliased =>
             _diag(file, child, at, width, out,
-              "can't specify a capability in a provides type")
+              "can't specify ephemeral in a provides type")
           end
         end
       | NdInfixType =>
@@ -833,21 +876,6 @@ primitive CheckLegality
       end
     end
 
-  fun _transfers(tree: SyntaxTree val, jump: USize): Bool =>
-    """
-    Whether a jump leaves the sequence: `return`, `break`, `continue` and
-    `error` do; the compile intrinsics do not run at all.
-    """
-    try
-      for child in tree.children(jump)? do
-        match tree.kind(child)?
-        | TkReturn | TkBreak | TkContinue | TkError => return true
-        | TkCompileIntrinsic | TkCompileError => return false
-        end
-      end
-    end
-    false
-
   fun _gencap_outside_constraint(
     file: String val,
     tree: SyntaxTree val,
@@ -883,7 +911,23 @@ primitive CheckLegality
         match tree.kind(child)?
         | TkConsume | TkWhitespace | TkLineComment | TkNestedComment
         | TkIso | TkTrn | TkRef | TkVal | TkBox | TkTag => None
-        | NdRef | NdThis | NdDot => return
+        | NdRef | NdThis => return
+        | NdDot =>
+          // A dotted target is fine unless what is left of the dot is a
+          // call or a parenthesised expression -- consuming a field of a
+          // temporary consumes nothing.
+          for part in tree.children(child)? do
+            match tree.kind(part)?
+            | TkWhitespace | TkLineComment | TkNestedComment => None
+            | NdCall | NdGrouped | NdTuple =>
+              _diag(file, child, at, width, out,
+                "Consume expressions must specify an identifier or field")
+              return
+            else
+              return
+            end
+          end
+          return
         else
           _diag(file, child, at, width, out,
             "Consume expressions must specify an identifier or field")

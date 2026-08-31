@@ -12,9 +12,10 @@ actor Main
   exits 1, distinct from both verdicts: a crash must never manufacture
   one.
 
-  At this slice a rejection means a parse diagnostic, an over-deep
-  nesting, or a `use`-level legality or resolution error. Everything the
-  semantic layer will add lands behind the same verdicts.
+  At this slice a rejection means a parse diagnostic, an over-deep or
+  over-large source, a `use`-level legality or resolution error, or one
+  of the ported syntax-pass legality rules. Everything the semantic layer
+  will add lands behind the same verdicts.
   """
   new create(env: Env) =>
     var batch: (String val | None) = None
@@ -73,7 +74,7 @@ actor Main
           out.push((CheckDiag(file.path, d.offset, d.width, d.message),
             file.source))
         end
-        for d in CheckLegality(file.path, file.source, file.tree).values() do
+        for d in file.legality.values() do
           out.push((d, file.source))
         end
       end

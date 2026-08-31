@@ -19,8 +19,9 @@ or non-zero.
     make corpus-cases   # extract the cases and the manifest
     make pass-reach     # what a checker can reach without method bodies
 
-`corpus_report.py` compares a verdict file against the manifest. Nothing here
-produces one yet, because the checker it would run does not exist.
+`corpus_report.py` compares a verdict file against the manifest;
+`make checker-corpus` produces one from `tools/checker` and scores it
+against the instrument's valid universe.
 
 ## What the extraction leaves out
 

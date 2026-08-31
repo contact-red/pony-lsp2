@@ -95,6 +95,10 @@ zero relative `use`s and nothing needing it.
 
 The loader walks the `use` graph a level at a time, reading each file's
 imports back from the binder — the binder parses; the loader never does.
+(Slice 0 as built takes an interim shortcut: the binder is not wired in
+until name resolution arrives, so the loader owns the parse and scans
+uses from the tree itself, guard-aware. The binder takes the parse back
+in slice 1.)
 
 **A package's identity is its canonical (realpath) directory path**,
 carried as `PackageId`, whose constructor is private to the loader: a
