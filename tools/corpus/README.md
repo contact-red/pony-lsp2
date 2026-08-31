@@ -21,7 +21,11 @@ or non-zero.
 
 `corpus_report.py` compares a verdict file against the manifest;
 `make checker-corpus` produces one from `tools/checker` and scores it
-against the instrument's valid universe.
+against the instrument's valid universe. `make column-oracle` goes one
+level below the verdict: wherever the checker and ponyc emit the same
+message on a reject case, it requires the line and column to match, so
+a diagnostic that drifts from ponyc's position fails a gate instead of
+waiting for a reader to notice the caret.
 
 ## What the extraction leaves out
 

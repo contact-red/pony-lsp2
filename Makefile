@@ -12,7 +12,7 @@ PATHS      := --path $(BRIDGE) --path $(LIBS) --path $(PONYC_LIB)
 
 .PHONY: all test syntax-test lsp lsp-test tools corpus mutants bind bench \
   types corpus-cases pass-reach memo-pays checker checker-probes \
-  checker-stdlib checker-corpus grammar-guard clean FORCE
+  checker-stdlib checker-corpus column-oracle grammar-guard clean FORCE
 
 all: test
 
@@ -158,6 +158,14 @@ checker-stdlib: checker
 	else \
 	  echo "stdlib: all packages clean"; \
 	fi
+
+# Positions, not just verdicts: wherever the checker and ponyc emit the
+# same message on a reject case, the line and column must match.
+column-oracle: checker
+	@test -f $(CORPUS_CASES)/reach.tsv || \
+	  { echo "no reach.tsv: run 'make pass-reach' once first"; exit 1; }
+	python3 tools/corpus/column_oracle.py $(CORPUS_CASES) \
+	  ./build/checker "$(PONYC_ROOT)/packages"
 
 checker-corpus: checker corpus-cases
 	@test -f $(CORPUS_CASES)/reach.tsv || \
