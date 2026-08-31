@@ -86,13 +86,68 @@ class val FileData
 class val PackageData
   """
   One loaded package: its files, in bytewise-sorted order, as ponyc
-  loads them. Its identity is the canonical directory path the
+  loads them, and the package-level legality only the whole package
+  can decide. Its identity is the canonical directory path the
   loader's store keys it by.
   """
   let files: Array[FileData] val
+  let legality: Array[CheckDiagnostic] val
 
   new val create(files': Array[FileData] val) =>
     files = files'
+    legality = _PackageLegality(files')
+
+primitive _PackageLegality
+  """
+  ponyc's package-docstring rule: one module docstring becomes the
+  package's, and every other one is an error naming it. ponyc builds
+  the package by prepending modules, so the docstring that wins is the
+  bytewise-last file's.
+  """
+  fun apply(files: Array[FileData] val): Array[CheckDiagnostic] val =>
+    recover val
+      let out = Array[CheckDiagnostic]
+      var existing: (CheckDiagnostic | None) = None
+      var i = files.size()
+      while i > 0 do
+        i = i - 1
+        try
+          let file = files(i)?
+          match _module_docstring(file)
+          | let doc: CheckDiagnostic =>
+            match existing
+            | None => existing = doc
+            | let first: CheckDiagnostic =>
+              out.push(
+                CheckDiagnostic(doc.file, doc.offset,
+                  "the package already has a docstring",
+                  CheckDiagnostic(first.file, first.offset,
+                    "the existing docstring is here")))
+            end
+          end
+        end
+      end
+      out
+    end
+
+  fun _module_docstring(file: FileData): (CheckDiagnostic | None) =>
+    """
+    The module's docstring: a string as the module's first statement.
+    The carried message is only a position; the caller writes its own.
+    """
+    let tree = file.tree
+    try
+      for child in tree.children(0)? do
+        match tree.kind(child)?
+        | TkWhitespace | TkLineComment | TkNestedComment => None
+        | TkString =>
+          return CheckDiagnostic(file.path, tree.offset(child)?, "")
+        else
+          return None
+        end
+      end
+    end
+    None
 
 class val Program
   """
@@ -147,6 +202,11 @@ class val Program
         if not suppress then
           for d in f.legality.values() do
             diags.push(d)
+          end
+          for d in package.legality.values() do
+            if d.file == f.path then
+              diags.push(d)
+            end
           end
           for d in load_diags.values() do
             if d.file == f.path then

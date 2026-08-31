@@ -470,8 +470,8 @@ a usage error or internal failure exits 1, distinct from both
 verdicts — a crash never manufactures one); the loader; the parser
 depth guard (divergence 4); and ponyc's `syntax` pass — body-free
 shape checks over the existing lossless tree, ported in full, decided
-by Red (the package-docstring rule, which ponyc makes in its sugar
-pass, is the one boundary exception). Measured: 130 rejections error
+by Red — including the package-docstring rule from ponyc's sugar
+pass, since this implementation has no pass boundary to stop at. Measured: 130 rejections error
 at `parse` or `syntax`, **+9.4 points**, and the checker catches all
 130 — the tolerant parser converts its facts into every verdict,
 which was the open caveat this slice carried.

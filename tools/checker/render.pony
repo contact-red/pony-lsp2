@@ -7,7 +7,12 @@ primitive RenderDiag
   column. Takes the file's `LineIndex` so a run of diagnostics over one
   file indexes the source once rather than once per diagnostic.
   """
-  fun apply(diag: CheckDiagnostic, index: LineIndex val): String val =>
+  fun apply(
+    diag: CheckDiagnostic,
+    index: LineIndex val,
+    info_index: (LineIndex val | None) = None)
+    : String val
+  =>
     recover val
       let out = String
       _render(out, diag, index, "")
@@ -15,7 +20,12 @@ primitive RenderDiag
       | let info: CheckDiagnostic =>
         out.push('\n')
         out.append("    Info:\n")
-        _render(out, info, index, "    ")
+        let idx =
+          match info_index
+          | let i: LineIndex val => i
+          | None => index
+          end
+        _render(out, info, idx, "    ")
       end
       out
     end

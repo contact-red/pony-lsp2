@@ -1,3 +1,4 @@
+use "collections"
 use "files"
 use "../../upstream/tools/lib/ponylang/pony_syntax"
 
@@ -27,7 +28,8 @@ actor Main
   var _loader: (Loader | None) = None
   var _cases: Array[String val] val = recover val Array[String val] end
   var _case_index: USize = 0
-  embed _render_queue: Array[(CheckDiagnostic, LineIndex val)] =
+  embed _render_queue:
+    Array[(CheckDiagnostic, LineIndex val, (LineIndex val | None))] =
     _render_queue.create()
   var _render_index: USize = 0
 
@@ -150,6 +152,26 @@ actor Main
     end
     n
 
+  fun _index_for(
+    program: Program,
+    path: String val,
+    cache: Map[String, LineIndex val])
+    : (LineIndex val | None)
+  =>
+    try
+      return cache(path)?
+    end
+    for package in program.packages.values() do
+      for f in package.files.values() do
+        if f.path == path then
+          let index: LineIndex val = LineIndex(f.tree.source, Utf8)
+          cache(path) = index
+          return index
+        end
+      end
+    end
+    None
+
   fun ref _run_single(loader: Loader ref, dir: String val) =>
     match loader.load(dir)
     | let e: LoadError =>
@@ -164,11 +186,22 @@ actor Main
           any = true
         end
       end
+      let indexes = Map[String, LineIndex val]
       for (file, diags) in program.diagnostics().values() do
         if diags.size() > 0 then
           let index: LineIndex val = LineIndex(file.tree.source, Utf8)
+          indexes(file.path) = index
           for d in diags.values() do
-            _render_queue.push((d, index))
+            // An Info naming another file — the package-docstring
+            // rule — renders against that file's own index.
+            let info_index =
+              match d.info
+              | let info: CheckDiagnostic if info.file != d.file =>
+                _index_for(program, info.file, indexes)
+              else
+                None
+              end
+            _render_queue.push((d, index, info_index))
           end
         end
       end
@@ -188,8 +221,9 @@ actor Main
     var n: USize = 0
     while (n < 256) and (_render_index < _render_queue.size()) do
       try
-        (let d, let index) = _render_queue(_render_index)?
-        _Stderr.print("Error:\n" + RenderDiag(d, index))
+        (let d, let index, let info_index) =
+          _render_queue(_render_index)?
+        _Stderr.print("Error:\n" + RenderDiag(d, index, info_index))
       end
       _render_index = _render_index + 1
       n = n + 1

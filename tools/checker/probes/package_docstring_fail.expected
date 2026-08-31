@@ -1,0 +1,8 @@
+Error:
+$DIR/a_first.pony:1:1: the package already has a docstring
+"""
+^
+    Info:
+    $DIR/b_second.pony:1:1: the existing docstring is here
+    """
+    ^

@@ -52,6 +52,8 @@ name_trailing_underscore_fail	fail	field name "my_" cannot have a trailing under
 name_type_case_fail	fail	class name "fooBar" must start A-Z or _(A-Z)
 name_type_param_fail	fail	type parameter name "a" must start A-Z
 nosupertype_provides_fail	fail	a 'nosupertype' type cannot specify a provides list
+package_docstring_fail	fail	the package already has a docstring
+package_docstring_ok	ok	
 parse_error_suppresses_fail	fail	expected a parameter name
 platform_as_user_flag_fail	fail	"linux" is not a valid user build flag
 precedence_mix_fail	fail	Operator precedence is not supported. Parentheses required.

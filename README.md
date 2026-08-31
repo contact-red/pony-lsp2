@@ -55,8 +55,9 @@ The batch checker covers its first slice: the driver, the loader, a
 parser depth guard that turns over-deep nesting into a diagnostic
 instead of a crash — every grammar recursion cycle carries a guard,
 which `make test` re-derives from the source — and ponyc's syntax
-pass, ported in full (the package-docstring rule, which ponyc makes
-in its sugar pass, is the one piece beyond it). `tools/checker/probes`
+pass ported in full, plus the package-docstring rule from its sugar
+pass — this implementation has no pass boundary to stop at, decided
+by Red. `tools/checker/probes`
 holds a fixture per rule family, pinning verdicts, messages, and one
 whole rendering. On the corpus's valid cases it rejects nothing ponyc
 accepts and catches every rejection ponyc makes at its parse or
