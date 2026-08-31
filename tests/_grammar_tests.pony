@@ -384,7 +384,7 @@ class \nodoc\ iso _TestNestingPastTheLimitIsRefused is UnitTest
     Each recursion shape at its exact boundary, both legs: the deepest
     depth the guard admits parses clean, one more is refused with the
     guard's own diagnostic, and the tree still reprints byte for byte.
-    The boundaries pin `_MaxNesting` at 500: parentheses descend
+    The boundaries pin `_MaxNesting` at 2500: parentheses descend
     through both the sequence rule and the term rule, two per source
     level, so they meet the limit at 249; the other shapes descend
     once per level, on top of the constant descents of their
@@ -395,14 +395,16 @@ class \nodoc\ iso _TestNestingPastTheLimitIsRefused is UnitTest
     must refuse with a diagnostic rather than crash, which the deep
     legs check.
     """
-    _check(h, "paren", _Nested.parens(249), _Nested.parens(250))
-    _check(h, "prefix", _Nested.prefixes(498), _Nested.prefixes(499))
-    _check(h, "type", _Nested.types(499), _Nested.types(500))
-    _check(h, "assign", _Nested.assigns(498), _Nested.assigns(499))
+    _check(h, "paren", _Nested.parens(1249), _Nested.parens(1250))
+    _check(h, "prefix",
+      _Nested.prefixes(2498), _Nested.prefixes(2499))
+    _check(h, "type", _Nested.types(2499), _Nested.types(2500))
+    _check(h, "assign",
+      _Nested.assigns(2498), _Nested.assigns(2499))
     _check(h, "idseq",
-      _Nested.for_patterns(498), _Nested.for_patterns(499))
+      _Nested.for_patterns(2498), _Nested.for_patterns(2499))
     _check(h, "constexpr",
-      _Nested.const_exprs(496), _Nested.const_exprs(497))
+      _Nested.const_exprs(2496), _Nested.const_exprs(2497))
     _check_deep(h, "paren", _Nested.parens(20_000))
     _check_deep(h, "assign", _Nested.assigns(20_000))
     _check_deep(h, "idseq", _Nested.for_patterns(20_000))
@@ -453,7 +455,7 @@ class \nodoc\ iso _TestRefusalRecoveryResumes is UnitTest
     let src: String val =
       recover val
         let out = String
-        out.append(_Nested.parens(300))
+        out.append(_Nested.parens(1500))
         out.append("class After\n  fun f(): U8 => 0\n")
         out
       end

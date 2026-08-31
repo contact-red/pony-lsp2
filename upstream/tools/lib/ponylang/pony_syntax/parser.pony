@@ -8,7 +8,7 @@ primitive _MaxNesting
   the limit at about half this number. Refusing here keeps the refusal
   a diagnostic instead of a crash.
   """
-  fun apply(): USize => 500
+  fun apply(): USize => 2500
 
 class Parser
   """
