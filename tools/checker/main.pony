@@ -73,7 +73,7 @@ actor Main
           out.push((CheckDiag(file.path, d.offset, d.width, d.message),
             file.source))
         end
-        for d in CheckLegality(file.path, file.tree).values() do
+        for d in CheckLegality(file.path, file.source, file.tree).values() do
           out.push((d, file.source))
         end
       end

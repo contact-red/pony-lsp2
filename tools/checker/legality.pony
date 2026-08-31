@@ -12,7 +12,12 @@ primitive CheckLegality
   placement, FFI calls in default methods — are not here yet; each lands
   with its corpus case.
   """
-  fun apply(file: String val, tree: SyntaxTree val): Array[CheckDiag] val =>
+  fun apply(
+    file: String val,
+    source: String val,
+    tree: SyntaxTree val)
+    : Array[CheckDiag] val
+  =>
     recover val
       let out = Array[CheckDiag]
       // Offsets and widths by element index, so structure walks below can
@@ -24,14 +29,451 @@ primitive CheckLegality
         width.push(w.usize())
       end
 
-      for (element, _, a, kind, w) in tree.walk() do
+      // The enclosing elements of the one being visited, maintained from
+      // the walk's depths, so a rule that depends on where a construct
+      // sits -- a body, an FFI declaration, a trait -- can read the chain
+      // instead of re-walking.
+      let stack = Array[(USize, SyntaxKind)]
+      var default_method_scope: USize = 0
+        """
+        Past this element index, an FFI call sits inside a trait or
+        interface. Zero when not inside one.
+        """
+
+      for (element, depth, a, kind, w) in tree.walk() do
+        stack.truncate(depth)
         if kind is NdClassDef then
           _entity(file, tree, element, a, w.usize(), at, width, out)
+          if _is_default_method_entity(tree, element) then
+            default_method_scope = element + (try
+              tree.subtree_size(element)?
+            else
+              0
+            end)
+          end
         elseif kind is NdObject then
           _object_fields(file, tree, element, at, width, out)
+        elseif kind is NdUseFFI then
+          _ffi(file, tree, element, true, at, width, out)
+        elseif kind is NdFFICall then
+          _ffi(file, tree, element, false, at, width, out)
+          if element < default_method_scope then
+            _diag(file, element, at, width, out,
+              "Can't call an FFI function in a default method or behavior")
+          end
+        elseif (kind is NdBareLambda) or (kind is NdBareLambdaType) then
+          _bare_lambda(file, tree, element, at, width, out)
+        elseif kind is NdIfDef then
+          _ifdef_flags(file, tree, element, at, width, out)
+        elseif kind is NdSeq then
+          _seq(file, source, tree, element, stack, at, width, out)
+        elseif kind is TkEllipsis then
+          _ellipsis(file, tree, element, stack, at, width, out)
         end
+        stack.push((element, kind))
       end
       out
+    end
+
+  fun _is_default_method_entity(tree: SyntaxTree val, element: USize)
+    : Bool
+  =>
+    try
+      for child in tree.children(element)? do
+        match tree.kind(child)?
+        | TkTrait | TkInterface => return true
+        | TkId => return false
+        end
+      end
+    end
+    false
+
+  fun _ffi(
+    file: String val,
+    tree: SyntaxTree val,
+    element: USize,
+    is_declaration: Bool,
+    at: Array[USize] box,
+    width: Array[USize] box,
+    out: Array[CheckDiag] ref)
+  =>
+    try
+      for child in tree.children(element)? do
+        match tree.kind(child)?
+        | NdTypeArgs =>
+          if is_declaration then
+            var types: USize = 0
+            for arg in tree.children(child)? do
+              match tree.kind(arg)?
+              | NdNominal | NdInfixType | NdGroupedType | NdTupleType
+              | NdLambdaType | NdBareLambdaType | NdViewpoint
+              | NdThisType => types = types + 1
+              end
+            end
+            if types != 1 then
+              _diag(file, child, at, width, out,
+                "FFI functions must specify a single return type")
+            end
+          end
+        | TkQuestion =>
+          _diag(file, child, at, width, out,
+            "Partial FFI is no longer supported. 'pony_error()' has been " +
+              "removed, so an FFI " +
+              (if is_declaration then "declaration" else "call" end) +
+              " can no longer be partial. Remove the '?'.")
+        | NdParams =>
+          if is_declaration then
+            for param in tree.children(child)? do
+              if tree.kind(param)? is NdParam then
+                for part in tree.children(param)? do
+                  if tree.kind(part)? is NdDefaultArg then
+                    _diag(file, part, at, width, out,
+                      "FFIs parameters cannot have default values")
+                  end
+                end
+              end
+            end
+          end
+        end
+      end
+    end
+
+  fun _ellipsis(
+    file: String val,
+    tree: SyntaxTree val,
+    element: USize,
+    stack: Array[(USize, SyntaxKind)] box,
+    at: Array[USize] box,
+    width: Array[USize] box,
+    out: Array[CheckDiag] ref)
+  =>
+    var in_params: (USize | None) = None
+    var in_ffi = false
+    try
+      var i = stack.size()
+      while i > 0 do
+        i = i - 1
+        (let el, let kind) = stack(i)?
+        if kind is NdParams then
+          in_params = el
+        elseif kind is NdUseFFI then
+          in_ffi = true
+        elseif kind is NdFFICall then
+          in_ffi = true
+        end
+      end
+    end
+    match in_params
+    | None => return
+    | let params: USize =>
+      if not in_ffi then
+        _diag(file, element, at, width, out,
+          "... may only appear in FFI declarations")
+      end
+      // Last parameter: no parameter node after this token.
+      try
+        var after = false
+        for child in tree.children(params)? do
+          if child == element then
+            after = true
+          elseif after and (tree.kind(child)? is NdParam) then
+            _diag(file, element, at, width, out,
+              "... must be the last parameter")
+            break
+          end
+        end
+      end
+    end
+
+  fun _bare_lambda(
+    file: String val,
+    tree: SyntaxTree val,
+    element: USize,
+    at: Array[USize] box,
+    width: Array[USize] box,
+    out: Array[CheckDiag] ref)
+  =>
+    var after_body = false
+    try
+      for child in tree.children(element)? do
+        match tree.kind(child)?
+        | TkRbrace => after_body = true
+        | NdTypeParams =>
+          _diag(file, child, at, width, out,
+            "a bare lambda cannot specify type parameters")
+        | NdLambdaCaptures =>
+          _diag(file, child, at, width, out,
+            "a bare lambda cannot specify captures")
+        | TkIso | TkTrn | TkRef | TkBox | TkTag =>
+          if after_body then
+            _diag(file, child, at, width, out,
+              "a bare lambda can only have a 'val' capability")
+          else
+            _diag(file, child, at, width, out,
+              "a bare lambda cannot specify a receiver capability")
+          end
+        | TkVal =>
+          if not after_body then
+            _diag(file, child, at, width, out,
+              "a bare lambda cannot specify a receiver capability")
+          end
+        end
+      end
+    end
+
+  fun _ifdef_flags(
+    file: String val,
+    tree: SyntaxTree val,
+    ifdef_el: USize,
+    at: Array[USize] box,
+    width: Array[USize] box,
+    out: Array[CheckDiag] ref)
+  =>
+    """
+    Flags in an `ifdef` condition: a string is a user build flag, which
+    must not be a platform name or a reserved flag; a bare name is a
+    platform flag, which must be one ponyc knows.
+    """
+    try
+      var in_condition = false
+      for child in tree.children(ifdef_el)? do
+        match tree.kind(child)?
+        | TkIfdef | TkElseif => in_condition = true
+        | TkThen => return
+        else
+          if not in_condition then continue end
+          let size = try tree.subtree_size(child)? else 1 end
+          var i = child
+          while i < (child + size) do
+            match tree.kind(i)?
+            | TkString =>
+              let name = _Unquote(recover val tree.text(i)? end)
+              if _Platforms.known(name.lower()) or
+                _Platforms.illegal(name.lower())
+              then
+                _diag(file, i, at, width, out,
+                  "\"" + name + "\" is not a valid user build flag")
+              end
+            | NdRef =>
+              for part in tree.children(i)? do
+                if tree.kind(part)? is TkId then
+                  let name = recover val tree.text(part)? end
+                  if not _Platforms.known(name) then
+                    _diag(file, i, at, width, out,
+                      "\"" + name + "\" is not a valid platform flag")
+                  end
+                end
+              end
+            end
+            i = i + 1
+          end
+        end
+      end
+    end
+
+  fun _seq(
+    file: String val,
+    source: String val,
+    tree: SyntaxTree val,
+    seq: USize,
+    stack: Array[(USize, SyntaxKind)] box,
+    at: Array[USize] box,
+    width: Array[USize] box,
+    out: Array[CheckDiag] ref)
+  =>
+    """
+    Rules about a sequence's own children: semicolons separate expressions
+    on the same line and nothing else, and the compile intrinsics and
+    errors may only be a body, whole.
+    """
+    let parent_kind =
+      try stack(stack.size() - 1)?._2 else NdModule end
+    let grandparent_kind =
+      try stack(stack.size() - 2)?._2 else NdModule end
+
+    var statements: USize = 0
+    var prev_stmt: (USize | None) = None
+    var semi_since_prev = false
+    var newline_since_prev = false
+    var first_stmt: (USize | None) = None
+
+    try
+      for child in tree.children(seq)? do
+        let kind = tree.kind(child)?
+        match kind
+        | TkWhitespace =>
+          if (recover val tree.text(child)? end).contains("\n") then
+            newline_since_prev = true
+          end
+        | TkLineComment => newline_since_prev = true
+        | TkNestedComment => None
+        | TkSemi =>
+          semi_since_prev = true
+          // A semicolon that reaches a line end, or the sequence's end,
+          // separates nothing on its own line: ponyc's bad-semi flag.
+          var j = child + 1
+          var bad = j >= (seq + tree.subtree_size(seq)?)
+          try
+            while j < (seq + tree.subtree_size(seq)?) do
+              match tree.kind(j)?
+              | TkWhitespace =>
+                if (recover val tree.text(j)? end).contains("\n") then
+                  bad = true
+                  break
+                end
+              | TkLineComment =>
+                bad = true
+                break
+              else
+                break
+              end
+              j = j + 1
+            end
+            if j >= (seq + tree.subtree_size(seq)?) then
+              bad = true
+            end
+          end
+          if bad then
+            _diag(file, child, at, width, out,
+              "Unexpected semicolon, only use to separate expressions " +
+                "on the same line")
+          end
+        else
+          if not tree.is_leaf(child)? then
+            statements = statements + 1
+            if first_stmt is None then
+              first_stmt = child
+            end
+            match prev_stmt
+            | let _: USize =>
+              if (not semi_since_prev) and (not newline_since_prev) then
+                _diag(file, child, at, width, out,
+                  "Use a semi colon to separate expressions on the same " +
+                    "line")
+              end
+            end
+            prev_stmt = child
+            semi_since_prev = false
+            newline_since_prev = false
+
+            if kind is NdJump then
+              _jump(file, tree, child, seq, parent_kind, grandparent_kind,
+                at, width, out)
+            end
+          elseif kind is TkString then
+            // A leading docstring is not a statement for the
+            // entire-body rules, but anything else leafy is.
+            if first_stmt isnt None then
+              statements = statements + 1
+              prev_stmt = child
+            end
+          else
+            statements = statements + 1
+            prev_stmt = child
+            semi_since_prev = false
+            newline_since_prev = false
+          end
+        end
+      end
+    end
+
+  fun _jump(
+    file: String val,
+    tree: SyntaxTree val,
+    jump: USize,
+    seq: USize,
+    parent_kind: SyntaxKind,
+    grandparent_kind: SyntaxKind,
+    at: Array[USize] box,
+    width: Array[USize] box,
+    out: Array[CheckDiag] ref)
+  =>
+    var keyword: (SyntaxKind | None) = None
+    var value: (USize | None) = None
+    try
+      for child in tree.children(jump)? do
+        match tree.kind(child)?
+        | TkCompileIntrinsic => keyword = TkCompileIntrinsic
+        | TkCompileError => keyword = TkCompileError
+        | NdSeq => value = child
+        end
+      end
+    end
+
+    match keyword
+    | TkCompileIntrinsic =>
+      if not (parent_kind is NdMethod) then
+        _diag(file, jump, at, width, out,
+          "a compile intrinsic must be a method body")
+      elseif (value isnt None) or (not _sole_statement(tree, seq, jump)) then
+        _diag(file, jump, at, width, out,
+          "a compile intrinsic must be the entire body")
+      end
+    | TkCompileError =>
+      let in_ifdef =
+        (parent_kind is NdIfDef) or
+          (((parent_kind is NdThen) or (parent_kind is NdElse)) and
+            (grandparent_kind is NdIfDef))
+      if not in_ifdef then
+        _diag(file, jump, at, width, out,
+          "a compile error must be in an ifdef")
+        return
+      end
+      let reason_ok =
+        try
+          match value
+          | let v: USize =>
+            var strings: USize = 0
+            var others: USize = 0
+            for part in tree.children(v)? do
+              match tree.kind(part)?
+              | TkString => strings = strings + 1
+              | TkWhitespace | TkLineComment | TkNestedComment => None
+              else
+                others = others + 1
+              end
+            end
+            (strings == 1) and (others == 0)
+          | None => false
+          end
+        else
+          false
+        end
+      if not reason_ok then
+        _diag(file, jump, at, width, out,
+          "a compile error must have a string literal reason for the error")
+      elseif not _sole_statement(tree, seq, jump) then
+        _diag(file, jump, at, width, out,
+          "a compile error must be the entire ifdef clause")
+      end
+    end
+
+  fun _sole_statement(tree: SyntaxTree val, seq: USize, stmt: USize)
+    : Bool
+  =>
+    """
+    Whether `stmt` is the only statement its sequence holds, a leading
+    docstring aside.
+    """
+    try
+      var seen_docstring = false
+      for child in tree.children(seq)? do
+        match tree.kind(child)?
+        | TkWhitespace | TkLineComment | TkNestedComment | TkSemi => None
+        | TkString =>
+          if seen_docstring or (child > stmt) then
+            return false
+          end
+          seen_docstring = true
+        else
+          if child != stmt then
+            return false
+          end
+        end
+      end
+      true
+    else
+      false
     end
 
   fun _entity(
@@ -447,4 +889,26 @@ primitive _MethodPerm
       else
         None
       end
+    end
+
+primitive _Platforms
+  """
+  The platform flags ponyc's `os_is_target` answers for, and the reserved
+  user flags, from `platformfuns.h` and `syntax.c`.
+  """
+  fun known(name: String val): Bool =>
+    match name
+    | "bsd" | "freebsd" | "dragonfly" | "openbsd" | "linux" | "osx"
+    | "windows" | "posix" | "x86" | "arm" | "lp64" | "llp64" | "ilp32"
+    | "native128" | "debug" | "bigendian" | "littleendian"
+    | "runtimestats" | "runtimestatsmessages" => true
+    else
+      false
+    end
+
+  fun illegal(name: String val): Bool =>
+    match name
+    | "ndebug" | "unknown_os" | "unknown_size" => true
+    else
+      false
     end
