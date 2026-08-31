@@ -446,8 +446,8 @@ Three slices, each a working binary over the full harness, each with its
 ceiling measured by a proxy that matches its own cut. The first
 implementation act was rebuilding the instrument (divergence 5) and
 re-measuring, and it is done: the numbers below are measured, per case,
-over the 1,363 valid cases (59 invalid excluded and listed by the
-instrument; the measured floor is 45.0%). Two scales are in play: the
+over the 1,371 valid cases (51 invalid excluded and listed by the
+instrument; the measured floor is 45.4%). Two scales are in play: the
 floor counts every valid accept, while the scored rate flips the
 pass-limited accepts — the cases full ponyc rejects — so on the scored
 scale an accept-everything checker sits three points lower. A quoted
@@ -473,8 +473,8 @@ slice closes.
 **Slice 1 — name errors.** `pony_bind` wired to the loader: unresolved
 names and unresolved `use`s as diagnostics (the `fail` side of the
 verdict split — nothing here scores as `load-failed`, so no case is
-double-booked). Measured: 42 rejections error in
-`sugar`/`scope`/`import`/`name`, **+3.1 points** (*unverified* how many
+double-booked). Measured: 41 rejections error in
+`sugar`/`scope`/`import`/`name`, **+3.0 points** (*unverified* how many
 are body-free).
 
 **Slice 2 — signatures.** The IR, lowering with canonicalisation, the
@@ -484,13 +484,13 @@ ponyq stack-overflowed until it ported the rule; 3 corpus rejections and
 a crash risk without it), reification as a plain function, the subtype
 evaluator, provides and constraint checking under the phase rule.
 Measured: 50 rejections error in `typealias_recursion`/`flatten`/
-`traits`, **+3.7 points**. The ~26 signature-level checks ponyc reports
+`traits`, **+3.6 points**. The ~26 signature-level checks ponyc reports
 from its `expr` pass are unverified upside, excluded from every ceiling
-until a per-case audit separates them from body machinery; 527 measured
+until a per-case audit separates them from body machinery; 528 measured
 rejections need `refer` or later.
 
-Cumulative measured ceiling: 836 of 1,363 — **61.3%, +16.3 points over
-the 45.0% floor** — assuming zero false rejections, and every false
+Cumulative measured ceiling: 843 of 1,371 — **61.5%, +16.1 points over
+the 45.4% floor** — assuming zero false rejections, and every false
 rejection costs a point, which is what put ponyq's 99 nearly on the
 floor. The per-slice gates (stdlib clean, tree parses, `sig_agreement`
 empty after normalization) are the false-rejection defence.
@@ -642,7 +642,7 @@ not agreement, and one body cannot drift from itself.
 ## Kept from the first candidate
 
 The IR shape and its four decisions; the sugar split and the `Less is
-Equatable[Compare]` test; the floor framing (measured at 45.0% on the
+Equatable[Compare]` test; the floor framing (measured at 45.4% on the
 per-case instrument's valid universe); diagnostics as result
 fields; `ErrorTy` failing closed; the `--batch` CLI contract; driver exit
 codes; the reason-sink explainer direction. Dropped across the two
