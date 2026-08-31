@@ -39,13 +39,10 @@ class val ScannedUse
   let aliased: Bool
   let guarded: Bool
   let offset: USize
-  let width: USize
   let locator_offset: USize
     """Where the locator string is written; the `use` itself when absent."""
-  let locator_width: USize
   let alias_offset: USize
     """Where the alias is written; the `use` itself when there is none."""
-  let alias_width: USize
 
   new val create(
     scheme': UseScheme,
@@ -54,11 +51,8 @@ class val ScannedUse
     aliased': Bool,
     guarded': Bool,
     offset': USize,
-    width': USize,
     locator_offset': USize,
-    locator_width': USize,
-    alias_offset': USize,
-    alias_width': USize)
+    alias_offset': USize)
   =>
     scheme = scheme'
     scheme_text = scheme_text'
@@ -66,11 +60,8 @@ class val ScannedUse
     aliased = aliased'
     guarded = guarded'
     offset = offset'
-    width = width'
     locator_offset = locator_offset'
-    locator_width = locator_width'
     alias_offset = alias_offset'
-    alias_width = alias_width'
 
 primitive ScanUses
   """
@@ -94,22 +85,19 @@ primitive ScanUses
       var use_end: USize = 0
       var child_depth: USize = 0
       var use_at: USize = 0
-      var use_width: USize = 0
       var aliased = false
       var alias_at: USize = 0
-      var alias_width: USize = 0
       var guarded = false
       var ffi = false
       var have_locator = false
       var written: String val = ""
       var written_at: USize = 0
-      var written_width: USize = 0
 
       for (element, depth, at, kind, width) in tree.walk() do
         if pending and (element >= use_end) then
           if not ffi then
-            out.push(_scanned(written, aliased, guarded, use_at, use_width,
-              written_at, written_width, alias_at, alias_width))
+            out.push(_scanned(written, aliased, guarded, use_at,
+              written_at, alias_at))
           end
           pending = false
         end
@@ -118,23 +106,19 @@ primitive ScanUses
           use_end = element + (try tree.subtree_size(element)? else 1 end)
           child_depth = depth + 1
           use_at = at
-          use_width = width
           aliased = false
           guarded = false
           ffi = false
           have_locator = false
           written = ""
           written_at = at
-          written_width = width
           alias_at = at
-          alias_width = width
         elseif pending and (depth == child_depth) then
           match kind
           | NdUseFFI => ffi = true
           | NdUseName =>
             aliased = true
             alias_at = at
-            alias_width = width
           | TkString =>
             if (not have_locator) and (not guarded) then
               have_locator = true
@@ -142,15 +126,14 @@ primitive ScanUses
                 StringLiteralValue(tree.source.substring(
                   at.isize(), (at + width).isize()))
               written_at = at
-              written_width = width
             end
           | TkIf => guarded = true
           end
         end
       end
       if pending and (not ffi) then
-        out.push(_scanned(written, aliased, guarded, use_at, use_width,
-          written_at, written_width, alias_at, alias_width))
+        out.push(_scanned(written, aliased, guarded, use_at,
+          written_at, alias_at))
       end
       out
     end
@@ -160,17 +143,13 @@ primitive ScanUses
     aliased: Bool,
     guarded: Bool,
     use_at: USize,
-    use_width: USize,
     written_at: USize,
-    written_width: USize,
-    alias_at: USize,
-    alias_width: USize)
+    alias_at: USize)
     : ScannedUse
   =>
     (let scheme, let scheme_text, let locator) = _classify(written)
     ScannedUse(scheme, scheme_text, locator, aliased, guarded,
-      use_at, use_width, written_at, written_width, alias_at,
-      alias_width)
+      use_at, written_at, alias_at)
 
   fun _classify(written: String val)
     : (UseScheme, String val, String val)

@@ -1,5 +1,48 @@
 use "../../upstream/tools/lib/ponylang/pony_syntax"
 
+class _Diags
+  """
+  One file's legality context: where diagnostics go, and how to locate
+  and read an element — the file, its tree, and the per-element byte
+  offsets the pass builds up front, because `SyntaxTree.offset` is
+  linear in the element index.
+  """
+  let file: String val
+  let tree: SyntaxTree val
+  let at: Array[USize] box
+  let out: Array[CheckDiagnostic] ref
+
+  new create(
+    file': String val,
+    tree': SyntaxTree val,
+    at': Array[USize] box,
+    out': Array[CheckDiagnostic] ref)
+  =>
+    file = file'
+    tree = tree'
+    at = at'
+    out = out'
+
+  fun offset(element: USize): USize =>
+    try at(element)? else _Unreachable(); 0 end
+
+  fun ref report(element: USize, message: String val) =>
+    out.push(CheckDiagnostic(file, offset(element), message))
+
+  fun ref report_with_info(
+    element: USize,
+    message: String val,
+    info: String val)
+  =>
+    out.push(
+      CheckDiagnostic(file, offset(element), message,
+        CheckDiagnostic(file, offset(element), info)))
+
+  fun text(element: USize): String val =>
+    let from = offset(element)
+    let w = try tree.width(element)? else _Unreachable(); 0 end
+    tree.source.substring(from.isize(), (from + w).isize())
+
 primitive CheckLegality
   """
   ponyc's `syntax`-pass legality rules that need nothing but the tree,
@@ -10,22 +53,18 @@ primitive CheckLegality
   placement, FFI legality, bare lambdas, ifdef flags, constraints,
   consume shapes, and casts.
   """
-  fun apply(
-    file: String val,
-    source: String val,
-    tree: SyntaxTree val)
+  fun apply(file: String val, tree: SyntaxTree val)
     : Array[CheckDiagnostic] val
   =>
     recover val
       let out = Array[CheckDiagnostic]
-      // Offsets and widths by element index, so structure walks below can
-      // locate any element without recomputing.
+      // Offsets by element index, so structure walks below can locate
+      // any element without recomputing one.
       let at = Array[USize](tree.size())
-      let width = Array[USize](tree.size())
-      for (_, _, a, _, w) in tree.walk() do
+      for (_, _, a, _, _) in tree.walk() do
         at.push(a)
-        width.push(w.usize())
       end
+      let d = _Diags(file, tree, at, out)
 
       // Where constraints sit, as element ranges, so a rule about what
       // a constraint may hold can test whether an element is inside
@@ -57,11 +96,10 @@ primitive CheckLegality
         interface. Zero when not inside one.
         """
 
-      for (element, depth, a, kind, w) in tree.walk() do
+      for (element, depth, _, kind, _) in tree.walk() do
         stack.truncate(depth)
         if kind is NdClassDef then
-          _entity(file, source, tree, element, a, w.usize(), at, width,
-            out)
+          _entity(d, element)
           if _is_default_method_entity(tree, element) then
             default_method_scope = element + (try
               tree.subtree_size(element)?
@@ -70,44 +108,43 @@ primitive CheckLegality
             end)
           end
         elseif kind is NdObject then
-          _object(file, source, tree, element, at, width, out)
+          _object(d, element)
         elseif kind is NdUseFFI then
-          _ffi(file, tree, element, true, at, width, out)
+          _ffi(d, element, true)
         elseif kind is NdFFICall then
-          _ffi(file, tree, element, false, at, width, out)
+          _ffi(d, element, false)
           if element < default_method_scope then
-            _diag(file, element, at, width, out,
+            d.report(element,
               "Can't call an FFI function in a default method or behavior")
           end
         elseif (kind is NdBareLambda) or (kind is NdBareLambdaType) then
-          _bare_lambda(file, tree, element, at, width, out)
+          _bare_lambda(d, element)
         elseif kind is NdIfDef then
-          _ifdef_flags(file, source, tree, element, at, width, out)
+          _ifdef_flags(d, element)
         elseif kind is NdUse then
-          _use_guard_flags(file, source, tree, element, at, width, out)
+          _use_guard_flags(d, element)
         elseif kind is NdSeq then
-          _seq(file, source, tree, element, stack, at, width, out)
+          _seq(d, element, stack)
         elseif kind is TkEllipsis then
-          _ellipsis(file, tree, element, stack, at, width, out)
+          _ellipsis(d, element, stack)
         elseif kind is NdViewpoint then
           if in_constraint(element) then
-            _diag(file, _anchor(tree, element), at, width, out,
+            d.report(_anchor(tree, element),
               "arrow types can't be used as type constraints")
           end
         elseif kind is NdTupleType then
           if in_tp_constraint(element) then
-            _diag(file, _anchor(tree, element), at, width, out,
+            d.report(_anchor(tree, element),
               "tuple types can't be used as type constraints")
           end
         elseif kind is NdNominal then
-          _gencap_outside_constraint(
-            file, tree, element, gencap_constraint, at, width, out)
+          _gencap_outside_constraint(d, element, gencap_constraint)
         elseif kind is NdConsume then
-          _consume(file, tree, element, at, width, out)
+          _consume(d, element)
         elseif kind is NdAsOp then
-          _cast(file, tree, element, at, width, out)
+          _cast(d, element)
         elseif kind is NdAnnotations then
-          _annotations(file, source, tree, element, at, width, out)
+          _annotations(d, element)
         end
         stack.push((element, kind))
       end
@@ -128,14 +165,11 @@ primitive CheckLegality
     false
 
   fun _ffi(
-    file: String val,
-    tree: SyntaxTree val,
+    d: _Diags,
     element: USize,
-    is_declaration: Bool,
-    at: Array[USize] box,
-    width: Array[USize] box,
-    out: Array[CheckDiagnostic] ref)
+    is_declaration: Bool)
   =>
+    let tree = d.tree
     try
       for child in tree.children(element)? do
         match tree.kind(child)?
@@ -151,11 +185,11 @@ primitive CheckLegality
           // A declaration must name exactly one return type; a call may
           // name none, but never more than one.
           if (types > 1) or (is_declaration and (types != 1)) then
-            _diag(file, child, at, width, out,
+            d.report(child,
               "FFI functions must specify a single return type")
           end
         | TkQuestion =>
-          _diag(file, child, at, width, out,
+          d.report(child,
             "Partial FFI is no longer supported. 'pony_error()' has been " +
               "removed, so an FFI " +
               (if is_declaration then "declaration" else "call" end) +
@@ -166,7 +200,7 @@ primitive CheckLegality
               if tree.kind(param)? is NdParam then
                 for part in tree.children(param)? do
                   if tree.kind(part)? is NdDefaultArg then
-                    _diag(file, _anchor(tree, part), at, width, out,
+                    d.report(_anchor(tree, part),
                       "FFIs parameters cannot have default values")
                   end
                 end
@@ -178,14 +212,11 @@ primitive CheckLegality
     end
 
   fun _ellipsis(
-    file: String val,
-    tree: SyntaxTree val,
+    d: _Diags,
     element: USize,
-    stack: Array[(USize, SyntaxKind)] box,
-    at: Array[USize] box,
-    width: Array[USize] box,
-    out: Array[CheckDiagnostic] ref)
+    stack: Array[(USize, SyntaxKind)] box)
   =>
+    let tree = d.tree
     // ponyc's `syntax_ellipsis` tests the grandparent alone: the
     // ellipsis's parameter list must itself belong to an FFI
     // declaration, so an ellipsis in a lambda or method nested inside
@@ -198,7 +229,7 @@ primitive CheckLegality
     let grandparent_kind =
       try stack(stack.size() - 2)?._2 else NdModule end
     if not (grandparent_kind is NdUseFFI) then
-      _diag(file, element, at, width, out,
+      d.report(element,
         "... may only appear in FFI declarations")
     end
     // Last parameter: no parameter node after this token.
@@ -208,7 +239,7 @@ primitive CheckLegality
         if child == element then
           after = true
         elseif after and (tree.kind(child)? is NdParam) then
-          _diag(file, element, at, width, out,
+          d.report(element,
             "... must be the last parameter")
           break
         end
@@ -216,35 +247,32 @@ primitive CheckLegality
     end
 
   fun _bare_lambda(
-    file: String val,
-    tree: SyntaxTree val,
-    element: USize,
-    at: Array[USize] box,
-    width: Array[USize] box,
-    out: Array[CheckDiagnostic] ref)
+    d: _Diags,
+    element: USize)
   =>
+    let tree = d.tree
     var after_body = false
     try
       for child in tree.children(element)? do
         match tree.kind(child)?
         | TkRbrace => after_body = true
         | NdTypeParams =>
-          _diag(file, child, at, width, out,
+          d.report(child,
             "a bare lambda cannot specify type parameters")
         | NdLambdaCaptures =>
-          _diag(file, child, at, width, out,
+          d.report(child,
             "a bare lambda cannot specify captures")
         | TkIso | TkTrn | TkRef | TkBox | TkTag =>
           if after_body then
-            _diag(file, child, at, width, out,
+            d.report(child,
               "a bare lambda can only have a 'val' capability")
           else
-            _diag(file, child, at, width, out,
+            d.report(child,
               "a bare lambda cannot specify a receiver capability")
           end
         | TkVal =>
           if not after_body then
-            _diag(file, child, at, width, out,
+            d.report(child,
               "a bare lambda cannot specify a receiver capability")
           end
         end
@@ -252,17 +280,13 @@ primitive CheckLegality
     end
 
   fun _ifdef_flags(
-    file: String val,
-    source: String val,
-    tree: SyntaxTree val,
-    ifdef_el: USize,
-    at: Array[USize] box,
-    width: Array[USize] box,
-    out: Array[CheckDiagnostic] ref)
+    d: _Diags,
+    ifdef_el: USize)
   =>
     """
     Run the flag rules over each condition of an `ifdef`.
     """
+    let tree = d.tree
     try
       var in_condition = false
       for child in tree.children(ifdef_el)? do
@@ -271,25 +295,21 @@ primitive CheckLegality
         | TkThen => return
         else
           if not in_condition then continue end
-          _condition_flags(file, source, tree, child, at, width, out)
+          _condition_flags(d, child)
         end
       end
     end
 
   fun _use_guard_flags(
-    file: String val,
-    source: String val,
-    tree: SyntaxTree val,
-    use_el: USize,
-    at: Array[USize] box,
-    width: Array[USize] box,
-    out: Array[CheckDiagnostic] ref)
+    d: _Diags,
+    use_el: USize)
   =>
     """
     The flag rules on a `use` guard: ponyc's syntax pass runs the ifdef
     condition check on it, so an unknown or reserved flag is an error
     whatever the scheme.
     """
+    let tree = d.tree
     try
       var in_guard = false
       for child in tree.children(use_el)? do
@@ -297,45 +317,41 @@ primitive CheckLegality
         | TkIf => in_guard = true
         else
           if in_guard then
-            _condition_flags(file, source, tree, child, at, width, out)
+            _condition_flags(d, child)
           end
         end
       end
     end
 
   fun _condition_flags(
-    file: String val,
-    source: String val,
-    tree: SyntaxTree val,
-    child: USize,
-    at: Array[USize] box,
-    width: Array[USize] box,
-    out: Array[CheckDiagnostic] ref)
+    d: _Diags,
+    child: USize)
   =>
     """
     The flag rules over one condition subtree: a string is a user build
     flag, which must not be a platform name or a reserved flag; a bare
     name is a platform flag, which must be in ponyc's table.
     """
+    let tree = d.tree
     try
       let size = try tree.subtree_size(child)? else 1 end
       var i = child
       while i < (child + size) do
         match tree.kind(i)?
         | TkString =>
-          let name = StringLiteralValue(_Text(source, at, width, i))
+          let name = StringLiteralValue(d.text(i))
           if _Platforms.known(name.lower()) or
             _Platforms.illegal(name.lower())
           then
-            _diag(file, i, at, width, out,
+            d.report(i,
               "\"" + name + "\" is not a valid user build flag\n")
           end
         | NdRef =>
           for part in tree.children(i)? do
             if tree.kind(part)? is TkId then
-              let name = _Text(source, at, width, part)
+              let name = d.text(part)
               if not _Platforms.known(name) then
-                _diag(file, i, at, width, out,
+                d.report(i,
                   "\"" + name + "\" is not a valid platform flag\n")
               end
             end
@@ -346,20 +362,16 @@ primitive CheckLegality
     end
 
   fun _seq(
-    file: String val,
-    source: String val,
-    tree: SyntaxTree val,
+    d: _Diags,
     seq: USize,
-    stack: Array[(USize, SyntaxKind)] box,
-    at: Array[USize] box,
-    width: Array[USize] box,
-    out: Array[CheckDiagnostic] ref)
+    stack: Array[(USize, SyntaxKind)] box)
   =>
     """
     Rules about a sequence's own children: semicolons separate expressions
     on the same line and nothing else, and the compile intrinsics and
     errors may only be a body, whole.
     """
+    let tree = d.tree
     let parent_kind =
       try stack(stack.size() - 1)?._2 else NdModule end
     let grandparent_kind =
@@ -374,7 +386,7 @@ primitive CheckLegality
         let kind = tree.kind(child)?
         match kind
         | TkWhitespace =>
-          if _Text(source, at, width, child).contains("\n") then
+          if d.text(child).contains("\n") then
             newline_since_prev = true
           end
         | TkLineComment => newline_since_prev = true
@@ -385,7 +397,7 @@ primitive CheckLegality
           // follows a line break, reaches a line end, or reaches the
           // sequence's end separates nothing: ponyc's bad-semi flag.
           if newline_since_prev then
-            _diag(file, child, at, width, out,
+            d.report(child,
               "Unexpected semicolon, only use to separate expressions " +
                 "on the same line")
             newline_since_prev = false
@@ -397,7 +409,7 @@ primitive CheckLegality
             while j < (seq + tree.subtree_size(seq)?) do
               match tree.kind(j)?
               | TkWhitespace =>
-                if _Text(source, at, width, j).contains("\n") then
+                if d.text(j).contains("\n") then
                   bad = true
                   break
                 end
@@ -414,7 +426,7 @@ primitive CheckLegality
             end
           end
           if bad then
-            _diag(file, child, at, width, out,
+            d.report(child,
               "Unexpected semicolon, only use to separate expressions " +
                 "on the same line")
           end
@@ -425,7 +437,7 @@ primitive CheckLegality
           match prev_stmt
           | let _: USize =>
             if (not semi_since_prev) and (not newline_since_prev) then
-              _diag(file, child, at, width, out,
+              d.report(child,
                 "Use a semi colon to separate expressions on the same " +
                   "line")
             end
@@ -435,25 +447,22 @@ primitive CheckLegality
           newline_since_prev = false
 
           if kind is NdJump then
-            _jump(file, tree, child, seq, stack, parent_kind,
-              grandparent_kind, at, width, out)
+            _jump(d, child, seq, stack, parent_kind,
+            grandparent_kind)
           end
         end
       end
     end
 
   fun _jump(
-    file: String val,
-    tree: SyntaxTree val,
+    d: _Diags,
     jump: USize,
     seq: USize,
     stack: Array[(USize, SyntaxKind)] box,
     parent_kind: SyntaxKind,
-    grandparent_kind: SyntaxKind,
-    at: Array[USize] box,
-    width: Array[USize] box,
-    out: Array[CheckDiagnostic] ref)
+    grandparent_kind: SyntaxKind)
   =>
+    let tree = d.tree
     var keyword: (SyntaxKind | None) = None
     var value: (USize | None) = None
     try
@@ -490,7 +499,7 @@ primitive CheckLegality
             else
               count = count + 1
               if count > bound then
-                _diag(file, part, at, width, out, "Unreachable code")
+                d.report(part, "Unreachable code")
                 reported = true
                 break
               end
@@ -499,7 +508,7 @@ primitive CheckLegality
         end
       end
       if not reported then
-        _climb_unreachable(file, tree, jump, seq, stack, at, width, out)
+        _climb_unreachable(d, jump, seq, stack)
       end
       return
     end
@@ -507,12 +516,12 @@ primitive CheckLegality
     match keyword
     | TkCompileIntrinsic =>
       if not (parent_kind is NdMethod) then
-        _diag(file, jump, at, width, out,
+        d.report(jump,
           "a compile intrinsic must be a method body")
       elseif (value isnt None) or
         (not _sole_statement(tree, seq, jump where allow_docstring = true))
       then
-        _diag(file, jump, at, width, out,
+        d.report(jump,
           "a compile intrinsic must be the entire body")
       end
     | TkCompileError =>
@@ -521,7 +530,7 @@ primitive CheckLegality
           (((parent_kind is NdThen) or (parent_kind is NdElse)) and
             (grandparent_kind is NdIfDef))
       if not in_ifdef then
-        _diag(file, jump, at, width, out,
+        d.report(jump,
           "a compile error must be in an ifdef")
         return
       end
@@ -546,25 +555,21 @@ primitive CheckLegality
           false
         end
       if not reason_ok then
-        _diag(file, jump, at, width, out,
+        d.report(jump,
           "a compile error must have a string literal reason for the error")
       elseif not
         _sole_statement(tree, seq, jump where allow_docstring = false)
       then
-        _diag(file, jump, at, width, out,
+        d.report(jump,
           "a compile error must be the entire ifdef clause")
       end
     end
 
   fun _climb_unreachable(
-    file: String val,
-    tree: SyntaxTree val,
+    d: _Diags,
     jump: USize,
     seq: USize,
-    stack: Array[(USize, SyntaxKind)] box,
-    at: Array[USize] box,
-    width: Array[USize] box,
-    out: Array[CheckDiagnostic] ref)
+    stack: Array[(USize, SyntaxKind)] box)
   =>
     """
     ponyc's second unreachable-code clause: from the jump, walk the
@@ -572,6 +577,7 @@ primitive CheckLegality
     that follows at any level, stepping through a parenthesised group,
     which ponyc's tree has no node for.
     """
+    let tree = d.tree
     var current = jump
     var parent = seq
     var parent_kind: SyntaxKind = NdSeq
@@ -581,7 +587,7 @@ primitive CheckLegality
         if parent_kind is NdSeq then
           match _next_statement(tree, parent, current)?
           | let sibling: USize =>
-            _diag(file, sibling, at, width, out, "Unreachable code")
+            d.report(sibling, "Unreachable code")
             return
           end
         elseif not (parent_kind is NdGrouped) then
@@ -647,16 +653,10 @@ primitive CheckLegality
     end
 
   fun _entity(
-    file: String val,
-    source: String val,
-    tree: SyntaxTree val,
-    element: USize,
-    a: USize,
-    w: USize,
-    at: Array[USize] box,
-    width: Array[USize] box,
-    out: Array[CheckDiagnostic] ref)
+    d: _Diags,
+    element: USize)
   =>
+    let tree = d.tree
     var found: (_EntityKind | None) = None
     var name: String val = ""
     var name_i: (USize | None) = None
@@ -682,7 +682,7 @@ primitive CheckLegality
         | TkId =>
           if name_i is None then
             name_i = child
-            name = _Text(source, at, width, child)
+            name = d.text(child)
           end
         | NdTypeParams => typeparams = child
         | NdProvides => provides = child
@@ -703,32 +703,32 @@ primitive CheckLegality
     if name == "Main" then
       match typeparams
       | let tp: USize =>
-        _diag(file, tp, at, width, out,
+        d.report(tp,
           "the Main actor cannot have type parameters")
       end
       if _EntityPerm.main(ent) == 'N' then
-        out.push(CheckDiagnostic(file, a, w, "Main must be an actor"))
+        d.report(element, "Main must be an actor")
       end
     end
     if name == "_" then
       match name_i
       | let id: USize =>
-        _diag(file, id, at, width, out, desc + " name cannot be \"_\"")
+        d.report(id, desc + " name cannot be \"_\"")
       end
     end
     match defcap
     | let cap: USize if _EntityPerm.cap(ent) == 'N' =>
-      _diag(file, cap, at, width, out,
+      d.report(cap,
         desc + " cannot specify default capability")
     end
     match c_api
     | let bare: USize =>
       if _EntityPerm.c_api(ent) == 'N' then
-        _diag(file, bare, at, width, out, desc + " cannot specify C api")
+        d.report(bare, desc + " cannot specify C api")
       end
       match typeparams
       | let tp: USize =>
-        _diag(file, tp, at, width, out,
+        d.report(tp,
           "generic actor cannot specify C api")
       end
     end
@@ -736,54 +736,46 @@ primitive CheckLegality
       if provides is None then
         match name_i
         | let id: USize =>
-          _diag(file, id, at, width, out, "a type alias must specify a type")
+          d.report(id, "a type alias must specify a type")
         end
       end
     else
       match provides
-      | let pr: USize => _provides(file, tree, pr, at, width, out)
+      | let pr: USize => _provides(d, pr)
       end
     end
     match members
     | let ms: USize =>
-      _members(file, source, tree, ent, ms, at, width, out)
+      _members(d, ent, ms)
     end
 
   fun _members(
-    file: String val,
-    source: String val,
-    tree: SyntaxTree val,
+    d: _Diags,
     ent: _EntityKind,
-    members: USize,
-    at: Array[USize] box,
-    width: Array[USize] box,
-    out: Array[CheckDiagnostic] ref)
+    members: USize)
   =>
+    let tree = d.tree
     try
       for member in tree.children(members)? do
         match tree.kind(member)?
         | NdField =>
           if _EntityPerm.field(ent) == 'N' then
-            _diag(file, member, at, width, out,
+            d.report(member,
               "Can't have fields in " + _EntityDesc(ent))
           end
-          _id_is(file, source, tree, member, "field", at, width, out)
+          _id_is(d, member, "field")
         | NdMethod =>
-          _method(file, source, tree, ent, member, at, width, out)
+          _method(d, ent, member)
         end
       end
     end
 
   fun _method(
-    file: String val,
-    source: String val,
-    tree: SyntaxTree val,
+    d: _Diags,
     ent: _EntityKind,
-    method: USize,
-    at: Array[USize] box,
-    width: Array[USize] box,
-    out: Array[CheckDiagnostic] ref)
+    method: USize)
   =>
+    let tree = d.tree
     var found: (_MethodKind | None) = None
     var cap: (USize | None) = None
     var bare: (USize | None) = None
@@ -838,16 +830,13 @@ primitive CheckLegality
     let desc = _MethodDesc(mkind, ent)
     match _MethodPerm(mkind, ent)
     | None =>
-      _diag(file, method, at, width, out, desc + "s are not allowed")
+      d.report(method, desc + "s are not allowed")
       return
     | let perms: String val =>
-      _element(file, perms, 0, cap, method, "receiver capability", desc,
-        at, width, out)
-      _element(file, perms, 1, bare, method, "bareness", desc,
-        at, width, out)
-      _element(file, perms, 2, ret, method, "return type", desc,
-        at, width, out)
-      _element(file, perms, 3, err, method, "?", desc, at, width, out)
+      _element(d, perms, 0, cap, method, "receiver capability", desc)
+      _element(d, perms, 1, bare, method, "bareness", desc)
+      _element(d, perms, 2, ret, method, "return type", desc)
+      _element(d, perms, 3, err, method, "?", desc)
       let body_at: (USize | None) =
         if body then
           match body_el
@@ -857,67 +846,57 @@ primitive CheckLegality
         else
           None
         end
-      _element(file, perms, 4, body_at, method, "body", desc,
-        at, width, out)
+      _element(d, perms, 4, body_at, method, "body", desc)
     end
-    _id_is(file, source, tree, method, "method", at, width, out)
+    _id_is(d, method, "method")
 
   fun _element(
-    file: String val,
+    d: _Diags,
     perms: String val,
     index: USize,
     actual: (USize | None),
     report_at: USize,
     context: String val,
-    desc: String val,
-    at: Array[USize] box,
-    width: Array[USize] box,
-    out: Array[CheckDiagnostic] ref)
+    desc: String val)
   =>
     let permission = try perms(index)? else _Unreachable(); 'X' end
     if (permission == 'N') and (actual isnt None) then
       match actual
       | let el: USize =>
-        _diag(file, el, at, width, out,
+        d.report(el,
           desc + " cannot specify " + context)
       end
     elseif (permission == 'Y') and (actual is None) then
-      _diag(file, report_at, at, width, out,
+      d.report(report_at,
         desc + " must specify " + context)
     end
 
   fun _provides(
-    file: String val,
-    tree: SyntaxTree val,
-    provides: USize,
-    at: Array[USize] box,
-    width: Array[USize] box,
-    out: Array[CheckDiagnostic] ref)
+    d: _Diags,
+    provides: USize)
   =>
+    let tree = d.tree
     try
       for child in tree.children(provides)? do
         match tree.kind(child)?
         | TkIs | NdError
         | TkWhitespace | TkLineComment | TkNestedComment => None
         else
-          _provides_type(file, tree, child, at, width, out)
+          _provides_type(d, child)
         end
       end
     end
 
   fun _provides_type(
-    file: String val,
-    tree: SyntaxTree val,
-    element: USize,
-    at: Array[USize] box,
-    width: Array[USize] box,
-    out: Array[CheckDiagnostic] ref)
+    d: _Diags,
+    element: USize)
   =>
     """
     ponyc's `check_provides_type`: a provides type is a nominal without a
     capability, an intersection of such, or parentheses around one. A `|`
     in an infix type, or any other type shape, is invalid there.
     """
+    let tree = d.tree
     try
       match tree.kind(element)?
       | NdNominal =>
@@ -925,10 +904,10 @@ primitive CheckLegality
           match tree.kind(child)?
           | TkIso | TkTrn | TkRef | TkVal | TkBox | TkTag
           | TkCapRead | TkCapSend | TkCapShare | TkCapAlias | TkCapAny =>
-            _diag(file, child, at, width, out,
+            d.report(child,
               "can't specify a capability in a provides type")
           | TkEphemeral | TkAliased =>
-            _diag(file, child, at, width, out,
+            d.report(child,
               "can't specify ephemeral in a provides type")
           end
         end
@@ -936,16 +915,16 @@ primitive CheckLegality
         for child in tree.children(element)? do
           match tree.kind(child)?
           | TkPipe =>
-            _diag(file, child, at, width, out, _invalid_provides())
+            d.report(child, _invalid_provides())
             return
           | NdNominal | NdGroupedType | NdInfixType =>
-            _provides_type(file, tree, child, at, width, out)
+            _provides_type(d, child)
           | TkIsecttype => None
           | TkWhitespace | TkLineComment | TkNestedComment =>
             // The tree is lossless, so trivia are children here too.
             None
           else
-            _diag(file, element, at, width, out, _invalid_provides())
+            d.report(element, _invalid_provides())
             return
           end
         end
@@ -955,11 +934,11 @@ primitive CheckLegality
           | TkLparen | TkLparenNew | TkRparen | NdError
           | TkWhitespace | TkLineComment | TkNestedComment => None
           else
-            _provides_type(file, tree, child, at, width, out)
+            _provides_type(d, child)
           end
         end
       else
-        _diag(file, _anchor(tree, element), at, width, out,
+        d.report(_anchor(tree, element),
           _invalid_provides())
       end
     end
@@ -1004,25 +983,21 @@ primitive CheckLegality
       "of those."
 
   fun _object(
-    file: String val,
-    source: String val,
-    tree: SyntaxTree val,
-    obj: USize,
-    at: Array[USize] box,
-    width: Array[USize] box,
-    out: Array[CheckDiagnostic] ref)
+    d: _Diags,
+    obj: USize)
   =>
     """
     ponyc's `syntax_object`: an object literal's members go through the
     actor permission tables, its provides list through the provides
     rules, and its fields must carry an initialiser.
     """
+    let tree = d.tree
     try
       for child in tree.children(obj)? do
         match tree.kind(child)?
-        | NdProvides => _provides(file, tree, child, at, width, out)
+        | NdProvides => _provides(d, child)
         | NdMembers =>
-          _members(file, source, tree, _Actor, child, at, width, out)
+          _members(d, _Actor, child)
           for member in tree.children(child)? do
             if tree.kind(member)? is NdField then
               var initialised = false
@@ -1032,7 +1007,7 @@ primitive CheckLegality
                 end
               end
               if not initialised then
-                _diag(file, member, at, width, out,
+                d.report(member,
                   "object literal fields must be initialized")
               end
             end
@@ -1042,20 +1017,16 @@ primitive CheckLegality
     end
 
   fun _id_is(
-    file: String val,
-    source: String val,
-    tree: SyntaxTree val,
+    d: _Diags,
     parent: USize,
-    what: String val,
-    at: Array[USize] box,
-    width: Array[USize] box,
-    out: Array[CheckDiagnostic] ref)
+    what: String val)
   =>
+    let tree = d.tree
     try
       for child in tree.children(parent)? do
         if tree.kind(child)? is TkId then
-          if _Text(source, at, width, child) == "_" then
-            _diag(file, child, at, width, out,
+          if d.text(child) == "_" then
+            d.report(child,
               what + " name cannot be \"_\"")
           end
           return
@@ -1064,14 +1035,11 @@ primitive CheckLegality
     end
 
   fun _gencap_outside_constraint(
-    file: String val,
-    tree: SyntaxTree val,
+    d: _Diags,
     nominal: USize,
-    in_constraint: _ConstraintTracker,
-    at: Array[USize] box,
-    width: Array[USize] box,
-    out: Array[CheckDiagnostic] ref)
+    in_constraint: _ConstraintTracker)
   =>
+    let tree = d.tree
     if in_constraint(nominal) then
       return
     end
@@ -1079,20 +1047,17 @@ primitive CheckLegality
       for child in tree.children(nominal)? do
         match tree.kind(child)?
         | TkCapRead | TkCapSend | TkCapShare | TkCapAlias | TkCapAny =>
-          _diag(file, child, at, width, out,
+          d.report(child,
             "a capability set can only appear in a type constraint")
         end
       end
     end
 
   fun _consume(
-    file: String val,
-    tree: SyntaxTree val,
-    consume_el: USize,
-    at: Array[USize] box,
-    width: Array[USize] box,
-    out: Array[CheckDiagnostic] ref)
+    d: _Diags,
+    consume_el: USize)
   =>
+    let tree = d.tree
     try
       for child in tree.children(consume_el)? do
         match tree.kind(child)?
@@ -1107,7 +1072,7 @@ primitive CheckLegality
             match tree.kind(part)?
             | TkWhitespace | TkLineComment | TkNestedComment => None
             | NdCall =>
-              _diag(file, _anchor(tree, child), at, width, out,
+              d.report(_anchor(tree, child),
                 "Consume expressions must specify an identifier or field")
               return
             | NdGrouped =>
@@ -1121,7 +1086,7 @@ primitive CheckLegality
                 | TkLparen | TkLparenNew => None
                 | NdTuple => return
                 else
-                  _diag(file, _anchor(tree, child), at, width, out,
+                  d.report(_anchor(tree, child),
                     "Consume expressions must specify an identifier or " +
                       "field")
                   return
@@ -1134,7 +1099,7 @@ primitive CheckLegality
           end
           return
         else
-          _diag(file, child, at, width, out,
+          d.report(child,
             "Consume expressions must specify an identifier or field")
           return
         end
@@ -1142,26 +1107,19 @@ primitive CheckLegality
     end
 
   fun _cast(
-    file: String val,
-    tree: SyntaxTree val,
-    as_el: USize,
-    at: Array[USize] box,
-    width: Array[USize] box,
-    out: Array[CheckDiagnostic] ref)
+    d: _Diags,
+    as_el: USize)
   =>
+    let tree = d.tree
     try
       for child in tree.children(as_el)? do
         match tree.kind(child)?
         | TkWhitespace | TkLineComment | TkNestedComment => None
         | TkInt | TkFloat =>
-          let a = try at(child)? else 0 end
-          let w = try width(child)? else 0 end
-          out.push(
-            CheckDiagnostic(file, a, w,
-              "Cannot cast uninferred numeric literal",
-              CheckDiagnostic(file, a, w,
-                "To give a numeric literal a specific type, use the " +
-                  "constructor of that numeric type")))
+          d.report_with_info(child,
+            "Cannot cast uninferred numeric literal",
+            "To give a numeric literal a specific type, use the " +
+              "constructor of that numeric type")
           return
         else
           return
@@ -1170,39 +1128,23 @@ primitive CheckLegality
     end
 
   fun _annotations(
-    file: String val,
-    source: String val,
-    tree: SyntaxTree val,
-    anns: USize,
-    at: Array[USize] box,
-    width: Array[USize] box,
-    out: Array[CheckDiagnostic] ref)
+    d: _Diags,
+    anns: USize)
   =>
+    let tree = d.tree
     try
       for child in tree.children(anns)? do
         if tree.kind(child)? is TkId then
-          if _Text(source, at, width, child)
+          if d.text(child)
             .compare_sub("ponyint", 7) is Equal
           then
-            _diag(file, child, at, width, out,
+            d.report(child,
               "annotations starting with 'ponyint' are reserved for " +
                 "internal use")
           end
         end
       end
     end
-
-  fun _diag(
-    file: String val,
-    element: USize,
-    at: Array[USize] box,
-    width: Array[USize] box,
-    out: Array[CheckDiagnostic] ref,
-    message: String val)
-  =>
-    let a = try at(element)? else 0 end
-    let w = try width(element)? else 0 end
-    out.push(CheckDiagnostic(file, a, w, message))
 
 primitive _Actor
 primitive _Class
@@ -1465,17 +1407,3 @@ primitive _Platforms
       false
     end
 
-primitive _Text
-  fun apply(
-    source: String val,
-    at: Array[USize] box,
-    width: Array[USize] box,
-    element: USize)
-    : String val
-  =>
-    try
-      let from = at(element)?
-      source.substring(from.isize(), (from + width(element)?).isize())
-    else
-      ""
-    end

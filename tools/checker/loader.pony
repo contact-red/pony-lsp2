@@ -43,20 +43,17 @@ class val CheckDiagnostic
   """
   let file: String val
   let offset: USize
-  let width: USize
   let message: String val
   let info: (CheckDiagnostic | None)
 
   new val create(
     file': String val,
     offset': USize,
-    width': USize,
     message': String val,
     info': (CheckDiagnostic | None) = None)
   =>
     file = file'
     offset = offset'
-    width = width'
     message = message'
     info = info'
 
@@ -76,28 +73,25 @@ class val FileData
   checker reads, computed once and cached across a batch.
   """
   let path: String val
-  let source: String val
   let tree: SyntaxTree val
   let uses: Array[ScannedUse] val
   let legality: Array[CheckDiagnostic] val
 
-  new val create(path': String val, source': String val) =>
+  new val create(path': String val, source: String val) =>
     path = path'
-    source = source'
-    tree = Parse(source')
+    tree = Parse(source)
     uses = ScanUses(tree)
-    legality = CheckLegality(path', source', tree)
+    legality = CheckLegality(path', tree)
 
 class val PackageData
   """
-  One loaded package: its canonical directory and its files, in
-  bytewise-sorted order, as ponyc loads them.
+  One loaded package: its files, in bytewise-sorted order, as ponyc
+  loads them. Its identity is the canonical directory path the
+  loader's store keys it by.
   """
-  let dir: String val
   let files: Array[FileData] val
 
-  new val create(dir': String val, files': Array[FileData] val) =>
-    dir = dir'
+  new val create(files': Array[FileData] val) =>
     files = files'
 
 class val Program
@@ -119,18 +113,52 @@ class val Program
     load_diags = load_diags'
     load_failures = load_failures'
 
-  fun file(path: String val): (FileData | None) =>
+  fun parse_failed(): Bool =>
     """
-    The loaded file at `path`, or `None` when no package holds one.
+    Whether any loaded file failed to parse. ponyc's later passes do
+    not run after a parse error, so a consumer reports only the parse
+    diagnostics when this holds.
     """
     for package in packages.values() do
       for f in package.files.values() do
-        if f.path == path then
-          return f
+        if f.tree.diagnostics.size() > 0 then
+          return true
         end
       end
     end
-    None
+    false
+
+  fun diagnostics(): Array[(FileData, Array[CheckDiagnostic])] =>
+    """
+    Every located diagnostic, grouped and sorted: packages in load
+    order, files in package order, byte order within a file. When any
+    file failed to parse, only the parse diagnostics are included —
+    ponyc's rule. The unlocated failures in `load_failures` are not
+    here; they render first.
+    """
+    let suppress = parse_failed()
+    let out = Array[(FileData, Array[CheckDiagnostic])]
+    for package in packages.values() do
+      for f in package.files.values() do
+        let diags = Array[CheckDiagnostic]
+        for d in f.tree.diagnostics.values() do
+          diags.push(CheckDiagnostic(f.path, d.offset, d.message))
+        end
+        if not suppress then
+          for d in f.legality.values() do
+            diags.push(d)
+          end
+          for d in load_diags.values() do
+            if d.file == f.path then
+              diags.push(d)
+            end
+          end
+        end
+        _SortByOffset(diags)
+        out.push((f, diags))
+      end
+    end
+    out
 
 class Loader
   """
@@ -213,7 +241,7 @@ class Loader
           | let s: _UseSite =>
             failures.push(UnlocatedDiagnostic(e.string()))
             diags.push(
-              CheckDiagnostic(s.file, s.offset, s.width,
+              CheckDiagnostic(s.file, s.offset,
                 "can't load package '" + locator + "'"))
           end
           continue
@@ -227,13 +255,13 @@ class Loader
           // `use` before any resolution.
           if u.scheme is UseUnknown then
             diags.push(
-              CheckDiagnostic(file.path, u.locator_offset, u.locator_width,
+              CheckDiagnostic(file.path, u.locator_offset,
                 "Use scheme " + u.scheme_text + " not found"))
             continue
           end
           if u.aliased and (not u.scheme.allow_name()) then
             diags.push(
-              CheckDiagnostic(file.path, u.alias_offset, u.alias_width,
+              CheckDiagnostic(file.path, u.alias_offset,
                 "Use scheme " + u.scheme_text + " may not have an alias"))
             continue
           end
@@ -241,9 +269,8 @@ class Loader
             // ponyc reports this against the alias clause, present or
             // not, so an unaliased `use` is blamed whole.
             let at = if u.aliased then u.alias_offset else u.offset end
-            let width = if u.aliased then u.alias_width else u.width end
             diags.push(
-              CheckDiagnostic(file.path, at, width,
+              CheckDiagnostic(file.path, at,
                 "Use scheme " + u.scheme_text + " may not have a guard"))
             continue
           end
@@ -254,15 +281,14 @@ class Loader
               if not seen.contains(found) then
                 seen.set(found)
                 queue.push(
-                  (found, u.locator,
-                    _UseSite(file.path, u.offset, u.width)))
+                  (found, u.locator, _UseSite(file.path, u.offset)))
               end
             | None =>
               failures.push(
                 UnlocatedDiagnostic(
                   u.locator + ": couldn't locate this path"))
               diags.push(
-                CheckDiagnostic(file.path, u.offset, u.width,
+                CheckDiagnostic(file.path, u.offset,
                   "can't load package '" + u.locator + "'"))
             end
           | UseDirective => None
@@ -337,7 +363,7 @@ class Loader
         end
       files.push(FileData(path, source))
     end
-    let built = PackageData(dir, consume files)
+    let built = PackageData(consume files)
     _store(dir) = built
     built
 
@@ -382,13 +408,62 @@ class Loader
 
 class val _UseSite
   """
-  The span of the `use` a failed dependency load is reported against.
+  The `use` a failed dependency load is reported against.
   """
   let file: String val
   let offset: USize
-  let width: USize
 
-  new val create(file': String val, offset': USize, width': USize) =>
+  new val create(file': String val, offset': USize) =>
     file = file'
     offset = offset'
-    width = width'
+
+primitive _SortByOffset
+  """
+  Stable sort of diagnostics by byte offset, in place.
+  """
+  fun apply(diags: Array[CheckDiagnostic]) =>
+    if diags.size() < 2 then
+      return
+    end
+    let aux = Array[CheckDiagnostic](diags.size())
+    for d in diags.values() do
+      aux.push(d)
+    end
+    _merge_sort(aux, diags, 0, diags.size())
+
+  fun _merge_sort(
+    from: Array[CheckDiagnostic],
+    to: Array[CheckDiagnostic],
+    lo: USize,
+    hi: USize)
+  =>
+    """
+    Sort `from`'s range into `to`'s, ping-ponging the two arrays so each
+    level merges without a copy. The ranges hold the same elements on
+    entry.
+    """
+    if (hi - lo) < 2 then
+      return
+    end
+    let mid = (lo + hi) / 2
+    _merge_sort(to, from, lo, mid)
+    _merge_sort(to, from, mid, hi)
+    var i = lo
+    var j = mid
+    var k = lo
+    try
+      while k < hi do
+        if (j >= hi) or
+          ((i < mid) and (from(i)?.offset <= from(j)?.offset))
+        then
+          to.update(k, from(i)?)?
+          i = i + 1
+        else
+          to.update(k, from(j)?)?
+          j = j + 1
+        end
+        k = k + 1
+      end
+    else
+      _Unreachable()
+    end

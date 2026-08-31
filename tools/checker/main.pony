@@ -137,61 +137,15 @@ actor Main
       "       checker --batch=<cases-file> [--path=ROOT ...]\n" +
       "PONYPATH entries are search roots too, after every --path.")
 
-  fun _parse_failed(program: Program): Bool =>
-    for package in program.packages.values() do
-      for file in package.files.values() do
-        if file.tree.diagnostics.size() > 0 then
-          return true
-        end
-      end
-    end
-    false
-
-  fun _grouped(program: Program)
-    : Array[(FileData, Array[CheckDiagnostic])]
-  =>
-    """
-    Every located diagnostic the loaded program carries, grouped and
-    sorted: packages in load order, files in package order, byte order
-    within a file. When any file failed to parse, only the parse
-    diagnostics are included, as in ponyc, whose later passes do not
-    run after a parse error. Verdict counting and rendering both read
-    this one grouping, so they cannot disagree.
-    """
-    let parse_failed = _parse_failed(program)
-    let out = Array[(FileData, Array[CheckDiagnostic])]
-    for package in program.packages.values() do
-      for file in package.files.values() do
-        let diags = Array[CheckDiagnostic]
-        for d in file.tree.diagnostics.values() do
-          diags.push(
-            CheckDiagnostic(file.path, d.offset, d.width, d.message))
-        end
-        if not parse_failed then
-          for d in file.legality.values() do
-            diags.push(d)
-          end
-          for d in program.load_diags.values() do
-            if d.file == file.path then
-              diags.push(d)
-            end
-          end
-        end
-        _SortByOffset(diags)
-        out.push((file, diags))
-      end
-    end
-    out
-
   fun _verdict_count(program: Program): USize =>
     """
     How many diagnostics single mode would render, from the same
     grouping it renders.
     """
     var n: USize =
-      if _parse_failed(program) then 0
+      if program.parse_failed() then 0
       else program.load_failures.size() end
-    for (_, diags) in _grouped(program).values() do
+    for (_, diags) in program.diagnostics().values() do
       n = n + diags.size()
     end
     n
@@ -203,16 +157,16 @@ actor Main
       _env.exitcode(255)
     | let program: Program =>
       var any = false
-      if not _parse_failed(program) then
+      if not program.parse_failed() then
         // ponyc prints an `Error:` heading per diagnostic.
         for f in program.load_failures.values() do
           _Stderr.print("Error:\n" + f.string())
           any = true
         end
       end
-      for (file, diags) in _grouped(program).values() do
+      for (file, diags) in program.diagnostics().values() do
         if diags.size() > 0 then
-          let index: LineIndex val = LineIndex(file.source, Utf8)
+          let index: LineIndex val = LineIndex(file.tree.source, Utf8)
           for d in diags.values() do
             _render_queue.push((d, index))
           end
@@ -299,55 +253,4 @@ actor Main
       _batch_chunk()
     else
       _env.exitcode(0)
-    end
-
-primitive _SortByOffset
-  """
-  Stable sort of diagnostics by byte offset, in place.
-  """
-  fun apply(diags: Array[CheckDiagnostic]) =>
-    if diags.size() < 2 then
-      return
-    end
-    let aux = Array[CheckDiagnostic](diags.size())
-    for d in diags.values() do
-      aux.push(d)
-    end
-    _merge_sort(aux, diags, 0, diags.size())
-
-  fun _merge_sort(
-    from: Array[CheckDiagnostic],
-    to: Array[CheckDiagnostic],
-    lo: USize,
-    hi: USize)
-  =>
-    """
-    Sort `from`'s range into `to`'s, ping-ponging the two arrays so each
-    level merges without a copy. The ranges hold the same elements on
-    entry.
-    """
-    if (hi - lo) < 2 then
-      return
-    end
-    let mid = (lo + hi) / 2
-    _merge_sort(to, from, lo, mid)
-    _merge_sort(to, from, mid, hi)
-    var i = lo
-    var j = mid
-    var k = lo
-    try
-      while k < hi do
-        if (j >= hi) or
-          ((i < mid) and (from(i)?.offset <= from(j)?.offset))
-        then
-          to.update(k, from(i)?)?
-          i = i + 1
-        else
-          to.update(k, from(j)?)?
-          j = j + 1
-        end
-        k = k + 1
-      end
-    else
-      _Unreachable()
     end
