@@ -2,7 +2,8 @@
 """Compare the checker's accept/reject verdict against ponyc's on the corpus.
 
 Reads the manifest written by extract_corpus.py and the verdicts written
-by `checker --batch`, one `<dir>\t(ok|fail|load-failed)` line per case,
+by `checker --batch`, one tab-separated `<dir>` and `(ok|fail|load-failed)`
+per line,
 and reports the agreement rate per suite.
 
 --reach=reach.tsv restricts scoring to the cases standalone ponyc
@@ -93,8 +94,8 @@ def main():
 
         if universe is not None and key not in universe:
             # Either excluded as invalid, or the reach file predates
-            # this manifest row. A case the batch run knows about but
-            # the reach file does not is the stale-file signature.
+            # this manifest row. A case with a verdict but no reach
+            # record is the stale-file signature.
             if got is not None and key not in invalid:
                 unreached.append(key)
             continue
@@ -118,6 +119,11 @@ def main():
             by_suite[suite][0] += 1
             if expect == "accept":
                 agreed_accepts += 1
+            elif key in limited:
+                # A flipped pass-limited accept has no erroring pass;
+                # crediting the case's target pass would book it to a
+                # slice ponyc never rejected it in.
+                agreed_pass["(limited accepts)"] += 1
             else:
                 agreed_pass[reject_pass.get(key, cpass)] += 1
         else:
@@ -163,8 +169,9 @@ def main():
 
     if universe is not None:
         # Where the agreement comes from, by the earliest pass at which
-        # ponyc rejects the case, so credit taken outside a slice under
-        # measurement is visible instead of folded into the headline.
+        # ponyc rejects the case, so an agreement outside the slice
+        # being measured shows up as its own row instead of inside the
+        # headline.
         print()
         print(f"agreed accepts: {agreed_accepts}")
         print("agreed rejects by ponyc's earliest erroring pass:")
@@ -177,6 +184,14 @@ def main():
     print(f"{missed} rejected by ponyc and accepted here "
           f"(a check not implemented)")
     print(f"{wrong} accepted by ponyc and rejected here (a rule got wrong)")
+
+    if wrong:
+        # A false rejection is the failure the floor framing exists to
+        # price; the gate fails on the first one.
+        for suite, test, expect, ours, cpass, message in disagreements:
+            if expect == "accept":
+                print(f"  wrong: {suite}/{test}")
+        return 2
 
     if "--list" in flags:
         print()

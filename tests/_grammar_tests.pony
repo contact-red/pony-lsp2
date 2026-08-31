@@ -383,11 +383,12 @@ class \nodoc\ iso _TestNestingPastTheLimitIsRefused is UnitTest
     Each recursion shape at its exact boundary, both legs: the deepest
     depth the guard admits parses clean, one more is refused with the
     guard's own diagnostic, and the tree still reprints byte for byte.
-    The boundaries pin `_MaxNesting` at 500: parentheses descend through
-    both the sequence rule and the term rule, so they meet the limit at
-    250 source levels; a prefix chain descends only through the prefix
-    rule, and a type only through the type rule, so both meet it at 500.
-    A boundary that moves means a guard was added, removed, or the limit
+    The boundaries pin `_MaxNesting` at 500: parentheses descend
+    through both the sequence rule and the term rule, two per source
+    level, so they meet the limit at 249; a prefix chain and a nested
+    type descend once per level, on top of the constant descents of
+    the enclosing declaration, so they meet it at 498 and 499. A
+    boundary that moves means a guard was added, removed, or the limit
     changed.
     """
     _check(h, "paren", _Nested.parens(249), _Nested.parens(250))

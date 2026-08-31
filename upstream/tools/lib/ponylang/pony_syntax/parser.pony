@@ -91,7 +91,7 @@ class Parser
 
   fun ref descend(): Bool =>
     """
-    Enter one level of grammar recursion, and say whether the limit is
+    Enter one level of grammar recursion. Returns whether the limit is
     now exceeded.
     """
     _depth = _depth + 1

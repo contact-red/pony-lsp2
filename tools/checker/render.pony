@@ -8,8 +8,26 @@ primitive RenderDiag
   file indexes the source once rather than once per diagnostic.
   """
   fun apply(diag: CheckDiagnostic, index: LineIndex val): String val =>
+    recover val
+      let out = String
+      _render(out, diag, index, "")
+      match diag.info
+      | let info: CheckDiagnostic =>
+        out.push('\n')
+        out.append("    Info:\n")
+        _render(out, info, index, "    ")
+      end
+      out
+    end
+
+  fun _render(
+    out: String ref,
+    diag: CheckDiagnostic,
+    index: LineIndex val,
+    indent: String val)
+  =>
     (let line, let character) = index.position(diag.offset)
-    let out = recover iso String end
+    out.append(indent)
     out.append(diag.file)
     out.push(':')
     out.append((line + 1).string())
@@ -20,8 +38,10 @@ primitive RenderDiag
     out.push('\n')
     let line_text: String val = index.source.substring(
       index.line_start(line).isize(), index.line_end(line).isize())
+    out.append(indent)
     out.append(line_text)
     out.push('\n')
+    out.append(indent)
     // The pad copies the source line's tabs, as ponyc does, so the
     // caret lands under the column whatever the tab width.
     var i: USize = 0
@@ -31,4 +51,3 @@ primitive RenderDiag
       i = i + 1
     end
     out.push('^')
-    consume out

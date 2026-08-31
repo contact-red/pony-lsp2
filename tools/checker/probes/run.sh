@@ -13,18 +13,17 @@ fails=0
 
 # The fixture set and the expectation list must name each other exactly:
 # a directory with no row would otherwise never run.
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+
 dirs=$(cd "$here" && find . -mindepth 1 -maxdepth 1 -type d | sed 's|^\./||' | sort)
 rows=$(cut -f1 "$here/expected.tsv" | sort)
 if [ "$dirs" != "$rows" ]; then
   echo "PROBE FAIL: fixture directories and expected.tsv disagree"
-  echo "$dirs" > /tmp/probe_dirs.$$; echo "$rows" > /tmp/probe_rows.$$
-  diff /tmp/probe_dirs.$$ /tmp/probe_rows.$$ || true
-  rm -f /tmp/probe_dirs.$$ /tmp/probe_rows.$$
+  echo "$dirs" > "$tmp/dirs"; echo "$rows" > "$tmp/rows"
+  diff "$tmp/dirs" "$tmp/rows" || true
   exit 1
 fi
-
-tmp=$(mktemp -d)
-trap 'rm -rf "$tmp"' EXIT
 
 # The byte cap, probed with a generated file so the repository does not
 # carry a megabyte of padding.
@@ -49,7 +48,12 @@ while IFS="	" read -r name want substring; do
   if [ "$got" != "$want" ]; then
     echo "PROBE FAIL: $name expected $want got $got"
     fails=$((fails+1))
-  elif [ "$want" = fail ] && ! grep -qF "$substring" "$tmp/err"; then
+  elif [ "$want" != ok ] && [ -z "$substring" ]; then
+    # An empty substring matches anything, which would quietly turn the
+    # row back into a bare verdict check.
+    echo "PROBE FAIL: $name has no expected message substring"
+    fails=$((fails+1))
+  elif [ "$want" != ok ] && ! grep -qF "$substring" "$tmp/err"; then
     echo "PROBE FAIL: $name rejected without '$substring'"
     fails=$((fails+1))
   fi
@@ -70,5 +74,8 @@ while IFS="	" read -r name want _; do
   fi
 done < "$here/expected.tsv"
 
-[ "$fails" -eq 0 ] && echo "probes: all pass"
-exit "$fails"
+if [ "$fails" -eq 0 ]; then
+  echo "probes: all pass"
+else
+  exit 1
+fi

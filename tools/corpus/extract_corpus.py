@@ -10,6 +10,7 @@ Usage: extract_corpus.py <ponyc-checkout> <output-dir> [suite...]
 
 import os
 import re
+import shutil
 import sys
 
 # The macros that state a verdict, and what they expect.
@@ -165,6 +166,13 @@ def verdict(body, defs):
     return None, None, "?", ""
 
 
+def _inside(parent, path):
+    """Whether `path` stays under `parent` — the scraped fixture names
+    come from C sources and are not trusted to be plain names."""
+    parent = os.path.abspath(parent)
+    return os.path.abspath(path).startswith(parent + os.sep)
+
+
 def main():
     if len(sys.argv) < 3:
         print(__doc__)
@@ -205,6 +213,9 @@ def main():
                 continue
 
             case = os.path.join(out_dir, suite, test)
+            # A stale fixture package from an earlier extraction would
+            # keep resolving after the test stops producing it.
+            shutil.rmtree(case, ignore_errors=True)
             os.makedirs(case, exist_ok=True)
 
             with open(os.path.join(case, "main.pony"), "w", encoding="utf8") as f:
@@ -212,10 +223,14 @@ def main():
 
             for magic, files in fixtures(body).items():
                 pkg = os.path.join(case, magic)
+                if not _inside(case, pkg):
+                    continue
                 os.makedirs(pkg, exist_ok=True)
                 for fname, content in files:
-                    with open(os.path.join(pkg, fname), "w",
-                              encoding="utf8") as f:
+                    path = os.path.join(pkg, fname)
+                    if not _inside(pkg, path):
+                        continue
+                    with open(path, "w", encoding="utf8") as f:
                         f.write(content)
 
             manifest.append((suite, test, expect, case_target, case, message))

@@ -39,12 +39,21 @@ actor Main
           env.exitcode(1)
           return
         end
-        roots.push(value)
+        // ponyc splits the value on the platform's list separator.
+        for entry in Path.split_list(value).values() do
+          if entry.size() > 0 then
+            roots.push(entry)
+          end
+        end
       elseif arg == "--path" then
         match try args(n)? else None end
         | let value: String val =>
           n = n + 1
-          roots.push(value)
+          for entry in Path.split_list(value).values() do
+            if entry.size() > 0 then
+              roots.push(entry)
+            end
+          end
         | None =>
           env.err.print("--path needs a value")
           env.exitcode(1)
@@ -72,6 +81,13 @@ actor Main
           end
         end
       end
+    end
+
+    match (batch, target)
+    | (let _: String val, let extra: String val) =>
+      env.err.print("unexpected argument with --batch: " + extra)
+      env.exitcode(1)
+      return
     end
 
     let loader = Loader(FileAuth(env.root), consume roots)
@@ -154,12 +170,12 @@ actor Main
       if (program.load_failures.size() + located.size()) == 0 then
         env.exitcode(0)
       else
-        env.err.print("Error:")
+        // ponyc prints an `Error:` heading per diagnostic.
         for f in program.load_failures.values() do
-          env.err.print(f.string())
+          env.err.print("Error:\n" + f.string())
         end
         for (d, index) in located.values() do
-          env.err.print(RenderDiag(d, index))
+          env.err.print("Error:\n" + RenderDiag(d, index))
         end
         env.exitcode(255)
       end

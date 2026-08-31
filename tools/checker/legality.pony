@@ -83,18 +83,20 @@ primitive CheckLegality
           _bare_lambda(file, tree, element, at, width, out)
         elseif kind is NdIfDef then
           _ifdef_flags(file, source, tree, element, at, width, out)
+        elseif kind is NdUse then
+          _use_guard_flags(file, source, tree, element, at, width, out)
         elseif kind is NdSeq then
           _seq(file, source, tree, element, stack, at, width, out)
         elseif kind is TkEllipsis then
           _ellipsis(file, tree, element, stack, at, width, out)
         elseif kind is NdViewpoint then
           if in_constraint(element) then
-            _diag(file, element, at, width, out,
+            _diag(file, _anchor(tree, element), at, width, out,
               "arrow types can't be used as type constraints")
           end
         elseif kind is NdTupleType then
           if in_tp_constraint(element) then
-            _diag(file, element, at, width, out,
+            _diag(file, _anchor(tree, element), at, width, out,
               "tuple types can't be used as type constraints")
           end
         elseif kind is NdNominal then
@@ -164,7 +166,7 @@ primitive CheckLegality
               if tree.kind(param)? is NdParam then
                 for part in tree.children(param)? do
                   if tree.kind(part)? is NdDefaultArg then
-                    _diag(file, part, at, width, out,
+                    _diag(file, _anchor(tree, part), at, width, out,
                       "FFIs parameters cannot have default values")
                   end
                 end
@@ -259,9 +261,7 @@ primitive CheckLegality
     out: Array[CheckDiagnostic] ref)
   =>
     """
-    Flags in an `ifdef` condition: a string is a user build flag, which
-    must not be a platform name or a reserved flag; a bare name is a
-    platform flag, which must be in ponyc's table.
+    Run the flag rules over each condition of an `ifdef`.
     """
     try
       var in_condition = false
@@ -271,32 +271,77 @@ primitive CheckLegality
         | TkThen => return
         else
           if not in_condition then continue end
-          let size = try tree.subtree_size(child)? else 1 end
-          var i = child
-          while i < (child + size) do
-            match tree.kind(i)?
-            | TkString =>
-              let name = _Unquote(_Text(source, at, width, i))
-              if _Platforms.known(name.lower()) or
-                _Platforms.illegal(name.lower())
-              then
-                _diag(file, i, at, width, out,
-                  "\"" + name + "\" is not a valid user build flag")
-              end
-            | NdRef =>
-              for part in tree.children(i)? do
-                if tree.kind(part)? is TkId then
-                  let name = _Text(source, at, width, part)
-                  if not _Platforms.known(name) then
-                    _diag(file, i, at, width, out,
-                      "\"" + name + "\" is not a valid platform flag")
-                  end
-                end
-              end
-            end
-            i = i + 1
+          _condition_flags(file, source, tree, child, at, width, out)
+        end
+      end
+    end
+
+  fun _use_guard_flags(
+    file: String val,
+    source: String val,
+    tree: SyntaxTree val,
+    use_el: USize,
+    at: Array[USize] box,
+    width: Array[USize] box,
+    out: Array[CheckDiagnostic] ref)
+  =>
+    """
+    The flag rules on a `use` guard: ponyc's syntax pass runs the ifdef
+    condition check on it, so an unknown or reserved flag is an error
+    whatever the scheme.
+    """
+    try
+      var in_guard = false
+      for child in tree.children(use_el)? do
+        match tree.kind(child)?
+        | TkIf => in_guard = true
+        else
+          if in_guard then
+            _condition_flags(file, source, tree, child, at, width, out)
           end
         end
+      end
+    end
+
+  fun _condition_flags(
+    file: String val,
+    source: String val,
+    tree: SyntaxTree val,
+    child: USize,
+    at: Array[USize] box,
+    width: Array[USize] box,
+    out: Array[CheckDiagnostic] ref)
+  =>
+    """
+    The flag rules over one condition subtree: a string is a user build
+    flag, which must not be a platform name or a reserved flag; a bare
+    name is a platform flag, which must be in ponyc's table.
+    """
+    try
+      let size = try tree.subtree_size(child)? else 1 end
+      var i = child
+      while i < (child + size) do
+        match tree.kind(i)?
+        | TkString =>
+          let name = StringLiteralValue(_Text(source, at, width, i))
+          if _Platforms.known(name.lower()) or
+            _Platforms.illegal(name.lower())
+          then
+            _diag(file, i, at, width, out,
+              "\"" + name + "\" is not a valid user build flag")
+          end
+        | NdRef =>
+          for part in tree.children(i)? do
+            if tree.kind(part)? is TkId then
+              let name = _Text(source, at, width, part)
+              if not _Platforms.known(name) then
+                _diag(file, i, at, width, out,
+                  "\"" + name + "\" is not a valid platform flag")
+              end
+            end
+          end
+        end
+        i = i + 1
       end
     end
 
@@ -442,8 +487,8 @@ primitive CheckLegality
     // expression for `return` and `break`, none for `continue` and
     // `error`. Anything past the bound is unreachable. ponyc's second
     // clause walks the enclosing sequence chain: a parenthesised jump
-    // gets its own inner sequence, so a statement after the
-    // parentheses is invisible to the bound and is caught by the walk.
+    // gets its own inner sequence, so the bound never counts a
+    // statement after the parentheses and only the walk reports it.
     match keyword
     | TkReturn | TkContinue =>
       let bound: USize = if keyword is TkReturn then 1 else 0 end
@@ -538,9 +583,8 @@ primitive CheckLegality
     """
     ponyc's second unreachable-code clause: from the jump, walk the
     enclosing sequence chain outward and report the first statement
-    that follows at any level, treating a parenthesised group as
-    transparent the way ponyc's tree, which has no group node, makes
-    it.
+    that follows at any level, stepping through a parenthesised group,
+    which ponyc's tree has no node for.
     """
     var current = jump
     var parent = seq
@@ -688,12 +732,11 @@ primitive CheckLegality
     | let bare: USize =>
       if _EntityPerm.c_api(ent) == 'N' then
         _diag(file, bare, at, width, out, desc + " cannot specify C api")
-      elseif typeparams isnt None then
-        match typeparams
-        | let tp: USize =>
-          _diag(file, tp, at, width, out,
-            "generic actor cannot specify C api")
-        end
+      end
+      match typeparams
+      | let tp: USize =>
+        _diag(file, tp, at, width, out,
+          "generic actor cannot specify C api")
       end
     end
     if ent == 6 then
@@ -754,11 +797,18 @@ primitive CheckLegality
     var ret: (USize | None) = None
     var err: (USize | None) = None
     var body = false
+    var body_el: (USize | None) = None
     var named = false
+    // ponyc reports a forbidden return type at the type and a
+    // forbidden body at the body, so both anchor at the node after
+    // their marker token.
+    var after_colon = false
+    var after_arrow = false
 
     try
       for child in tree.children(method)? do
         match tree.kind(child)?
+        | TkWhitespace | TkLineComment | TkNestedComment => None
         | TkFun => mkind = 0
         | TkBe => mkind = 1
         | TkNew => mkind = 2
@@ -766,9 +816,21 @@ primitive CheckLegality
           if not named then cap = child end
         | TkAt => if not named then bare = child end
         | TkId => named = true
-        | TkColon => ret = child
+        | TkColon =>
+          ret = child
+          after_colon = true
         | TkQuestion => err = child
-        | TkDblarrow => body = true
+        | TkDblarrow =>
+          body = true
+          after_arrow = true
+        else
+          if after_arrow then
+            body_el = child
+            after_arrow = false
+          elseif after_colon then
+            ret = child
+            after_colon = false
+          end
         end
       end
     end
@@ -786,8 +848,16 @@ primitive CheckLegality
       _element(file, perms, 2, ret, method, "return type", desc,
         at, width, out)
       _element(file, perms, 3, err, method, "?", desc, at, width, out)
-      let body_el: (USize | None) = if body then method else None end
-      _element(file, perms, 4, body_el, method, "body", desc,
+      let body_at: (USize | None) =
+        if body then
+          match body_el
+          | let el: USize => el
+          | None => method
+          end
+        else
+          None
+        end
+      _element(file, perms, 4, body_at, method, "body", desc,
         at, width, out)
     end
     _id_is(file, source, tree, method, "method", at, width, out)
@@ -889,23 +959,35 @@ primitive CheckLegality
           end
         end
       else
-        _diag(file, _provides_anchor(tree, element), at, width, out,
+        _diag(file, _anchor(tree, element), at, width, out,
           _invalid_provides())
       end
     end
 
-  fun _provides_anchor(tree: SyntaxTree val, element: USize): USize =>
+  fun _anchor(tree: SyntaxTree val, element: USize): USize =>
     """
-    The element to blame for an invalid provides type. ponyc's AST
-    positions a constructed node at the token that formed it — a tuple
-    at its comma, a viewpoint at its arrow — where this tree's nodes
-    start at their first child.
+    The element a diagnostic about a constructed node is reported
+    against. ponyc's AST positions such a node at the token that formed
+    it — a tuple at its comma, a viewpoint at its arrow, a dotted
+    access at its dot, a default argument at its value — where this
+    tree's nodes start at their first child.
     """
     try
       let want =
         match tree.kind(element)?
         | NdTupleType => TkComma
         | NdViewpoint => TkArrow
+        | NdDot => TkDot
+        | NdDefaultArg =>
+          for child in tree.children(element)? do
+            match tree.kind(child)?
+            | TkAssign | TkWhitespace | TkLineComment
+            | TkNestedComment => None
+            else
+              return child
+            end
+          end
+          return element
         else
           return element
         end
@@ -1025,7 +1107,7 @@ primitive CheckLegality
             match tree.kind(part)?
             | TkWhitespace | TkLineComment | TkNestedComment => None
             | NdCall =>
-              _diag(file, child, at, width, out,
+              _diag(file, _anchor(tree, child), at, width, out,
                 "Consume expressions must specify an identifier or field")
               return
             | NdGrouped =>
@@ -1039,7 +1121,7 @@ primitive CheckLegality
                 | TkLparen | TkLparenNew => None
                 | NdTuple => return
                 else
-                  _diag(file, child, at, width, out,
+                  _diag(file, _anchor(tree, child), at, width, out,
                     "Consume expressions must specify an identifier or " +
                       "field")
                   return
@@ -1072,10 +1154,14 @@ primitive CheckLegality
         match tree.kind(child)?
         | TkWhitespace | TkLineComment | TkNestedComment => None
         | TkInt | TkFloat =>
-          _diag(file, child, at, width, out,
-            "Cannot cast uninferred numeric literal\n" +
-              "To give a numeric literal a specific type, use the " +
-              "constructor of that numeric type")
+          let a = try at(child)? else 0 end
+          let w = try width(child)? else 0 end
+          out.push(
+            CheckDiagnostic(file, a, w,
+              "Cannot cast uninferred numeric literal",
+              CheckDiagnostic(file, a, w,
+                "To give a numeric literal a specific type, use the " +
+                  "constructor of that numeric type")))
           return
         else
           return
@@ -1206,10 +1292,9 @@ class _ConstraintTracker
   constraint only when the innermost enclosing constraint range is
   nearer than every enclosing type-argument range.
 
-  The range tables are ordered by start element — `_ConstraintRanges`
-  and `_TypeArgRanges` build them from pre-order walks and crash if the
-  order is ever violated — and queries arrive in element order, so one
-  cursor per table replaces a scan of every range per query.
+  The range tables arrive ordered by start element, and queries arrive
+  in element order, so one cursor per table replaces a scan of every
+  range per query.
   """
   let _constraints: Array[(USize, USize)] box
   let _typeargs: Array[(USize, USize)] box
@@ -1279,8 +1364,7 @@ class _ConstraintTracker
 primitive _TypeArgRanges
   """
   The element range of every type-argument list, ordered by start
-  element — `_ConstraintTracker` reads the table with a cursor and that
-  order is what makes the cursor sound, so a violation crashes.
+  element. A tree that would produce them out of order crashes.
   """
   fun apply(tree: SyntaxTree val): Array[(USize, USize)] val =>
     recover val
@@ -1304,8 +1388,8 @@ primitive _ConstraintRanges
   """
   The element ranges of every type-parameter constraint and every iftype
   constraint: for a type parameter, the type after its colon; for an
-  iftype, the type after `<:`. Ordered by start element — see
-  `_TypeArgRanges` for why a violation crashes.
+  iftype, the type after `<:`. Ordered by start element; a tree that
+  would produce them out of order crashes.
   """
   fun apply(tree: SyntaxTree val, with_iftype: Bool)
     : Array[(USize, USize)] val
@@ -1322,7 +1406,7 @@ primitive _ConstraintRanges
             for child in tree.children(element)? do
               match tree.kind(child)?
               | TkColon | TkSubtype => in_constraint = true
-              | NdDefaultArg | TkThen => in_constraint = false
+              | NdDefaultArg | TkAssign | TkThen => in_constraint = false
               else
                 if in_constraint and (not tree.is_leaf(child)?) then
                   if child < last then

@@ -48,22 +48,28 @@ type LoadError is (UnloadableRoot | UnreadableFile | EmptyPackage)
   """
 
 class val CheckDiagnostic
-  """One diagnostic, located by file and byte span."""
+  """
+  One diagnostic, located by file and byte span. `info` is a secondary
+  note rendered as ponyc's indented `Info:` block.
+  """
   let file: String val
   let offset: USize
   let width: USize
   let message: String val
+  let info: (CheckDiagnostic | None)
 
   new val create(
     file': String val,
     offset': USize,
     width': USize,
-    message': String val)
+    message': String val,
+    info': (CheckDiagnostic | None) = None)
   =>
     file = file'
     offset = offset'
     width = width'
     message = message'
+    info = info'
 
 class val UnlocatedDiagnostic
   """
@@ -204,8 +210,8 @@ class Loader
     let failures = recover iso Array[UnlocatedDiagnostic] end
     let seen = Set[String]
     // Each entry is a resolved directory, the locator that first named
-    // it, and for a dependency the `use` site to blame when the load
-    // fails, as ponyc's scope pass does.
+    // it, and for a dependency the `use` site a failed load is
+    // reported against, as in ponyc's scope pass.
     let queue = Array[(String val, String val, (_UseSite | None))]
 
     for (dir, locator) in
@@ -327,8 +333,8 @@ class Loader
       end
     else
       // The directory resolved but would not list. ponyc splits this by
-      // errno; the files package does not carry one, so probe for the
-      // conditions it can see.
+      // errno; the files package does not carry one, so the probe
+      // covers the conditions stat distinguishes.
       let why =
         try
           if FileInfo(FilePath(_auth, dir))?.directory then
@@ -409,7 +415,9 @@ class Loader
     end
 
 class val _UseSite
-  """The span of the `use` a queued dependency load will blame."""
+  """
+  The span of the `use` a failed dependency load is reported against.
+  """
   let file: String val
   let offset: USize
   let width: USize

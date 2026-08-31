@@ -16,7 +16,7 @@ PATHS      := --path $(BRIDGE) --path $(LIBS) --path $(PONYC_LIB)
 
 all: test
 
-test: syntax-test lsp-test checker-probes
+test: syntax-test lsp-test checker-probes checker-stdlib
 
 # The syntax tree, the parser and the analysis layer.
 syntax-test:
@@ -132,8 +132,14 @@ checker-probes: checker
 checker-stdlib: checker
 	@find "$(PONYC_ROOT)/packages" -name '*.pony' -not -name '.*' \
 	  | xargs -d '\n' -n1 dirname | sort -u > build/stdlib_dirs.txt
+	@test -s build/stdlib_dirs.txt || \
+	  { echo "no packages under $(PONYC_ROOT)/packages"; exit 1; }
 	@./build/checker --batch=build/stdlib_dirs.txt \
 	  --path="$(PONYC_ROOT)/packages" > build/stdlib_verdicts.tsv
+	@dirs=$$(wc -l < build/stdlib_dirs.txt); \
+	got=$$(wc -l < build/stdlib_verdicts.tsv); \
+	[ "$$dirs" -eq "$$got" ] || \
+	  { echo "stdlib: $$got verdicts for $$dirs packages"; exit 1; }
 	@fails=$$(awk -F'\t' '$$2 != "ok"' build/stdlib_verdicts.tsv | wc -l); \
 	if [ "$$fails" -ne 0 ]; then \
 	  awk -F'\t' '$$2 != "ok" { print "STDLIB FAIL: " $$1 }' \
