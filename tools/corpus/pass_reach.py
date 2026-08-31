@@ -98,9 +98,14 @@ def main():
                 # full checker sees the whole program, so record what full
                 # ponyc says as well: a "limited" accept is one full ponyc
                 # rejects, and a checker agreeing with full ponyc there is
-                # not wrong.
-                full_errs, _ = run(case, "ir", out_dir)
-                full = "limited" if full_errs else "-"
+                # not wrong. "Full" is the last front-end pass, `final` --
+                # anything later needs a Main actor, which library-shaped
+                # cases legitimately lack.
+                if target_i < LADDER.index("final"):
+                    full_errs, _ = run(case, "final", out_dir)
+                    full = "limited" if full_errs else "-"
+                else:
+                    full = "-"
                 records.append((suite, test, expect, target, full, "-"))
             else:
                 earliest = None

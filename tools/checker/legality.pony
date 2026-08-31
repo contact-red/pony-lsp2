@@ -29,6 +29,14 @@ primitive CheckLegality
         width.push(w.usize())
       end
 
+      // Where constraints sit, as element ranges, so the rules about
+      // what a constraint may hold can ask "is this element inside one"
+      // with a scan. Two sets, because ponyc's tuple rule applies only to
+      // type-parameter constraints while its arrow rule also covers
+      // iftype constraints.
+      let tp_constraints = _ConstraintRanges(tree, false)
+      let constraints = _ConstraintRanges(tree, true)
+
       // The enclosing elements of the one being visited, maintained from
       // the walk's depths, so a rule that depends on where a construct
       // sits -- a body, an FFI declaration, a trait -- can read the chain
@@ -69,6 +77,25 @@ primitive CheckLegality
           _seq(file, source, tree, element, stack, at, width, out)
         elseif kind is TkEllipsis then
           _ellipsis(file, tree, element, stack, at, width, out)
+        elseif kind is NdViewpoint then
+          if _InRanges(constraints, element) then
+            _diag(file, element, at, width, out,
+              "arrow types can't be used as type constraints")
+          end
+        elseif kind is NdTupleType then
+          if _InRanges(tp_constraints, element) then
+            _diag(file, element, at, width, out,
+              "tuple types can't be used as type constraints")
+          end
+        elseif kind is NdNominal then
+          _gencap_outside_constraint(
+            file, tree, element, constraints, at, width, out)
+        elseif kind is NdConsume then
+          _consume(file, tree, element, at, width, out)
+        elseif kind is NdAsOp then
+          _cast(file, tree, element, at, width, out)
+        elseif kind is NdAnnotations then
+          _annotations(file, tree, element, at, width, out)
         end
         stack.push((element, kind))
       end
@@ -292,6 +319,7 @@ primitive CheckLegality
       try stack(stack.size() - 2)?._2 else NdModule end
 
     var statements: USize = 0
+    var jumped = false
     var prev_stmt: (USize | None) = None
     var semi_since_prev = false
     var newline_since_prev = false
@@ -359,6 +387,12 @@ primitive CheckLegality
             if kind is NdJump then
               _jump(file, tree, child, seq, parent_kind, grandparent_kind,
                 at, width, out)
+            end
+            if jumped then
+              _diag(file, child, at, width, out, "Unreachable code")
+            end
+            if kind is NdJump then
+              jumped = _transfers(tree, child)
             end
           elseif kind is TkString then
             // A leading docstring is not a statement for the
@@ -799,6 +833,109 @@ primitive CheckLegality
       end
     end
 
+  fun _transfers(tree: SyntaxTree val, jump: USize): Bool =>
+    """
+    Whether a jump leaves the sequence: `return`, `break`, `continue` and
+    `error` do; the compile intrinsics do not run at all.
+    """
+    try
+      for child in tree.children(jump)? do
+        match tree.kind(child)?
+        | TkReturn | TkBreak | TkContinue | TkError => return true
+        | TkCompileIntrinsic | TkCompileError => return false
+        end
+      end
+    end
+    false
+
+  fun _gencap_outside_constraint(
+    file: String val,
+    tree: SyntaxTree val,
+    nominal: USize,
+    constraints: Array[(USize, USize)] box,
+    at: Array[USize] box,
+    width: Array[USize] box,
+    out: Array[CheckDiag] ref)
+  =>
+    if _InRanges(constraints, nominal) then
+      return
+    end
+    try
+      for child in tree.children(nominal)? do
+        match tree.kind(child)?
+        | TkCapRead | TkCapSend | TkCapShare | TkCapAlias | TkCapAny =>
+          _diag(file, child, at, width, out,
+            "a capability set can only appear in a type constraint")
+        end
+      end
+    end
+
+  fun _consume(
+    file: String val,
+    tree: SyntaxTree val,
+    consume_el: USize,
+    at: Array[USize] box,
+    width: Array[USize] box,
+    out: Array[CheckDiag] ref)
+  =>
+    try
+      for child in tree.children(consume_el)? do
+        match tree.kind(child)?
+        | TkConsume | TkWhitespace | TkLineComment | TkNestedComment
+        | TkIso | TkTrn | TkRef | TkVal | TkBox | TkTag => None
+        | NdRef | NdThis | NdDot => return
+        else
+          _diag(file, child, at, width, out,
+            "Consume expressions must specify an identifier or field")
+          return
+        end
+      end
+    end
+
+  fun _cast(
+    file: String val,
+    tree: SyntaxTree val,
+    as_el: USize,
+    at: Array[USize] box,
+    width: Array[USize] box,
+    out: Array[CheckDiag] ref)
+  =>
+    try
+      for child in tree.children(as_el)? do
+        match tree.kind(child)?
+        | TkWhitespace | TkLineComment | TkNestedComment => None
+        | TkInt | TkFloat =>
+          _diag(file, child, at, width, out,
+            "Cannot cast uninferred numeric literal")
+          return
+        else
+          return
+        end
+      end
+    end
+
+  fun _annotations(
+    file: String val,
+    tree: SyntaxTree val,
+    anns: USize,
+    at: Array[USize] box,
+    width: Array[USize] box,
+    out: Array[CheckDiag] ref)
+  =>
+    try
+      for child in tree.children(anns)? do
+        if tree.kind(child)? is TkId then
+          if (recover val tree.text(child)? end)
+            .compare_sub("ponyint", 7) is Equal
+          then
+            _diag(file, child, at, width, out,
+              "annotations starting with 'ponyint' are reserved for " +
+                "internal use")
+          end
+        end
+      end
+    end
+
   fun _diag(
     file: String val,
     element: USize,
@@ -889,6 +1026,49 @@ primitive _MethodPerm
       else
         None
       end
+    end
+
+
+primitive _InRanges
+  fun apply(ranges: Array[(USize, USize)] box, element: USize): Bool =>
+    for (from, to) in ranges.values() do
+      if (element >= from) and (element < to) then
+        return true
+      end
+    end
+    false
+
+primitive _ConstraintRanges
+  """
+  The element ranges of every type-parameter constraint and every iftype
+  constraint: for a type parameter, the type after its colon; for an
+  iftype, the type after `<:`.
+  """
+  fun apply(tree: SyntaxTree val, with_iftype: Bool)
+    : Array[(USize, USize)] val
+  =>
+    recover val
+      let out = Array[(USize, USize)]
+      for (element, _, _, kind, _) in tree.walk() do
+        if (kind is NdTypeParam) or
+          (with_iftype and (kind is NdIfType))
+        then
+          try
+            var in_constraint = false
+            for child in tree.children(element)? do
+              match tree.kind(child)?
+              | TkColon | TkSubtype => in_constraint = true
+              | NdDefaultArg | TkThen => in_constraint = false
+              else
+                if in_constraint and (not tree.is_leaf(child)?) then
+                  out.push((child, child + tree.subtree_size(child)?))
+                end
+              end
+            end
+          end
+        end
+      end
+      out
     end
 
 primitive _Platforms
