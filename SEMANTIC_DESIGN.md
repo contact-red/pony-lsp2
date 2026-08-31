@@ -4,11 +4,14 @@ Answers the six questions in `CHECKER_BRIEF.md`, plus a seventh the
 evaluation showed was missing: package loading.
 
 Produced by the full `pony-software-design` loop: three design personas
-from different entry points, a synthesis, and two rounds of five-persona
-evaluation, the second on the revised candidate. The first candidate was
-rejected outright; this one's second evaluation round produced no
-rejections. One policy decision is open and marked for Red (the loader
-confinement question, at the end of the package-loading section).
+from different entry points, a synthesis, two rounds of five-persona
+evaluation (the second on the revised candidate), and a focused re-check
+of the revised mechanisms — an adversarial pass with compiled probes plus
+a fidelity audit of the revision itself. The first candidate was rejected
+outright; the later rounds produced adjustments, all applied. The two
+policy decisions the loop surfaced — loader confinement and
+guard-versus-shortcut divergence — are decided by Red and recorded where
+they arise.
 
 Nothing here is implemented. Claims marked *unverified* are exactly that;
 a complete list is at the end. Measurements cited by name live in
@@ -68,15 +71,18 @@ a complete list is at the end. Measurements cited by name live in
 component that reads disk or resolves a `use`. It runs to completion for a
 package before that package is checked.
 
-**The scheme table is ponyc's** (`use.c:32-144`): only the default scheme
-— a bare locator — names a Pony package and is resolved. `lib:` is a
-link-library directive and `path:` appends to link-time library paths
-(`program.cc:171-196`); both are recorded and skipped, as are the C-shim
-schemes. An unknown scheme is a diagnostic. **Guards are evaluated**
-against a declared flag configuration, and a `use` whose guard is false is
-skipped entirely — the corpus contains programs that are accepted only
-because a false-guarded `use` never loads (whether one fixed configuration
-suffices for the corpus is *unverified*).
+**The scheme table is ponyc's** (`use.c:32-144`), ported with its
+per-scheme legality flags. The package scheme — a bare locator, or the
+same written explicitly as `package:` — names a Pony package and is
+resolved. `lib:` is a link-library directive and `path:` appends to
+link-time library paths (`program.cc:171-196`); both are recorded and
+skipped, as are the C-shim schemes. An unknown scheme is a diagnostic.
+**Guards follow ponyc's legality table, not an evaluator**: the package
+scheme has `allow_guard = false`, so `use "collections" if windows` is an
+error, probe-verified — no package load is ever guard-gated. Guards are
+legal only on the link-directive schemes, which this loader records and
+skips regardless, so guard evaluation enters only with FFI declarations
+in a later slice.
 
 **Resolution order for a bare locator**, matching ponyc's `find_path` less
 the upward `../pony_packages` walk: an absolute path as given; relative to
@@ -115,14 +121,15 @@ deterministic per (using package, string), so two packages resolving one
 string differently is supported, not ambiguous — and an unreachable error
 variant earns no place in the vocabulary.
 
-**Open decision (Red): confinement.** Dependency `use` strings are written
-by whoever wrote the dependency; the loader as specified honours absolute
-paths, and diagnostics echo source lines from whatever was loaded. This is
-ponyc parity, verified against `package.c` — but this tool's brief is to
-read source the invoking developer did not write. The options are parity
-(documented), a workspace-confinement default with an escape flag, or
-confinement only in `--batch`. This is a threat-model call and is left
-open here.
+**Confinement: ponyc parity, documented — decided by Red.** Dependency
+`use` strings are written by whoever wrote the dependency; the loader
+honours absolute paths and diagnostics echo source lines from whatever
+was loaded, exactly as ponyc does (verified against `package.c`). Running
+the checker over a workspace therefore trusts that workspace's
+dependencies to the same degree compiling it with ponyc would. The
+confinement alternatives (a workspace root, a batch-only restriction)
+were considered and declined; revisit only if the checker acquires a
+deployment where it runs over source nobody chose to trust.
 
 ## The type IR, and identity
 
@@ -281,10 +288,18 @@ a wrong, order-dependent verdict on a constructed multi-entity program
 (the program is retained as a required unit test alongside the
 four-interface walk-order case; the four-interface case alone cannot
 catch this class). The cost is
-re-derivation of in-cycle pairs within a top-level call, bounded by cycle
-size; a counter watches the volume at the standard-library gate, and if
-it shows a blowup, ponyc's conditional-read gates are the recorded,
-measured follow-up — ported verbatim, not improvised.
+re-derivation of in-cycle pairs within a top-level call, bounded by the
+number of derivation *paths*, not by cycle size — on a ring of interfaces
+whose members reference the next member twice, that is exponential, and a
+compiled probe measured exact 2^N growth on a 46-line legal file (ponyc
+itself is exponential on the same probe, so this is no regression, but
+one such case would stall the single-process batch). So the walk carries
+a per-top-level-call work budget that surfaces "this check is too
+complex" as an ordinary bounded diagnostic — the same pattern as the
+parser depth guard — with the budget's value set from a stdlib
+measurement. A counter still watches ordinary re-derivation volume, and
+ponyc's conditional-read gates remain the recorded, measured follow-up
+for making such programs actually check.
 
 The durable memo lives in **its own small package**, whose public
 `insert` takes the `_Dependence` union and classifies internally; the
@@ -313,22 +328,20 @@ a required unit test beside the promotion counterexample. Same rule, same
 constant, same `pony_check`-refuted K=2 history. (`Ty.depth` is the
 *input* bound at lowering; it is not the divergence guard.)
 
-**Open decision (Red): guard-versus-shortcut divergence.** The reflexive
-shortcut and the same-def guard compose into a divergence ponyc does not
-have: on a generic interface nested past the guard's limit, ponyc's
-deciding frame is a *reflexive* pair and it bails `false` (probe-verified
-against 0.69.1, ponyc's own #1216 wording), while this design's shortcut
-answers that same canonical pair `true` before any frame is pushed — so
-the checker accepts programs ponyc rejects. The shortcut's answer is the
-semantically correct one; ponyc's is the conservative bail it documents
-as issue #1216. The options are bug-compatibility (refuse the shortcut on
-guard-eligible shapes and bail as ponyc does) or correctness with the
-divergence documented. The corpus cost is now measured and it is zero:
-exactly two corpus rejections are guard-decided, both genuinely growing
-chains (`Iter[(B, A)]`, `I[I[A]]`) that the verbatim guard port rejects
-identically, and no corpus case sits in the divergence class itself. The
-choice is corpus-free; what it decides is behaviour on user code that
-reaches the class.
+**Guard-versus-shortcut divergence: keep the correct shortcut — decided
+by Red.** The reflexive shortcut and the same-def guard compose into a
+divergence ponyc does not have: on a generic interface nested past the
+guard's limit, ponyc's deciding frame is a *reflexive* pair and it bails
+`false` (probe-verified against 0.69.1, ponyc's own #1216 wording), while
+this design's shortcut answers that same canonical pair `true` before any
+frame is pushed. The shortcut's answer is the semantically correct one;
+ponyc's is the conservative bail it documents as issue #1216, and ponyc
+is deliberately not changed for this. So the checker accepts some
+programs ponyc's guard rejects, and the divergence is documented here
+rather than reproduced. The measured corpus cost is zero: exactly two
+corpus rejections are guard-decided, both genuinely growing chains
+(`Iter[(B, A)]`, `I[I[A]]`) that the verbatim guard port rejects
+identically, and no corpus case sits in the divergence class itself.
 
 **The reflexive shortcut** answers `sub is sup` as `true` before the
 memo, ported from the working PoC (`subtype.rs:1251-1330`) in its
@@ -339,8 +352,8 @@ capabilities are syntactically decisive — a `Nominal`, `UnionTy`,
 and everything else is refused: `TypeParamRef`, `AliasRef`, `Arrow`,
 `ErrorTy` (fail-closed), and the leaf variants, which is the PoC's
 catch-all refusal. The rule is deliberately mode-blind, which is
-conservative in every mode. Its interaction with the divergence guard is
-the open decision above.
+conservative in every mode. Its precedence over the divergence guard is
+the decided divergence above.
 
 ### Modes
 
@@ -501,7 +514,13 @@ is an edit-workload number and this binary performs no edits.
   settled subtype entries and entity tables whose keys mention only
   packages under the search roots (decidable at key construction, since
   an `EntityPath` carries its package) survive across cases; entries
-  mentioning a case package are dropped when that case's inputs change.
+  mentioning a case package are dropped when that case completes.
+  Root-stability for a `Ty`-keyed entry is not decidable from a path
+  alone — a case package can hide in a nominal argument or a lambda's
+  parameters — so every `Ty` folds a `root_stable` flag at construction,
+  exactly as it folds `depth` and its hash. The dedup map sits outside
+  the partition rule and only accretes memory; it shares the
+  admitted-input ceiling below.
   The invariant this rests on: case directories are disjoint from each
   other and from the search roots, and within one run a canonical
   directory path outside the case set maps to immutable content. The cross-case
