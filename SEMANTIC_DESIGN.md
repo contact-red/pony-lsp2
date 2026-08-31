@@ -98,7 +98,11 @@ imports back from the binder — the binder parses; the loader never does.
 (Slice 0 as built takes an interim shortcut: the binder is not wired in
 until name resolution arrives, so the loader owns the parse and scans
 uses from the tree itself, recording each `use`'s guard and alias for
-the legality checks. The binder takes the parse back in slice 1.)
+the legality checks. The binder takes the parse back in slice 1. The
+loader's package cache also lives for the whole batch, cases included —
+the per-case eviction the memo architecture requires arrives with the
+engine, and until then a batch's footprint is linear in its case
+count.)
 
 **A package's identity is its canonical (realpath) directory path**,
 carried as `PackageId`, whose constructor is private to the loader: a
