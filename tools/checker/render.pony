@@ -2,11 +2,12 @@ use "../../upstream/tools/lib/ponylang/pony_syntax"
 
 primitive RenderDiag
   """
-  One diagnostic in ponyc's shape: the location line with 1-based line and
-  byte column, the source line as written, and a caret under the column.
+  One located diagnostic in ponyc's shape: the location line with 1-based
+  line and byte column, the source line as written, and a caret under the
+  column. Takes the file's `LineIndex` so a run of diagnostics over one
+  file indexes the source once rather than once per diagnostic.
   """
-  fun apply(diag: CheckDiag, source: String val): String val =>
-    let index = LineIndex(source, Utf8)
+  fun apply(diag: CheckDiagnostic, index: LineIndex val): String val =>
     (let line, let character) = index.position(diag.offset)
     let out = recover iso String end
     out.append(diag.file)
@@ -17,7 +18,8 @@ primitive RenderDiag
     out.append(": ")
     out.append(diag.message)
     out.push('\n')
-    let line_text = _line_of(source, diag.offset)
+    let line_text: String val = index.source.substring(
+      index.line_start(line).isize(), index.line_end(line).isize())
     out.append(line_text)
     out.push('\n')
     // The pad copies the source line's tabs, as ponyc does, so the
@@ -30,17 +32,3 @@ primitive RenderDiag
     end
     out.push('^')
     consume out
-
-  fun _line_of(source: String val, offset: USize): String val =>
-    var from: USize = offset
-    while (from > 0) and _not_newline(source, from - 1) do
-      from = from - 1
-    end
-    var to: USize = offset
-    while (to < source.size()) and _not_newline(source, to) do
-      to = to + 1
-    end
-    source.substring(from.isize(), to.isize())
-
-  fun _not_newline(source: String val, at: USize): Bool =>
-    try source(at)? != '\n' else false end

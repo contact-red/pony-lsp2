@@ -6,23 +6,33 @@ class val UnloadableRoot
   """A target the run cannot start without: the root, or `builtin`."""
   let what: String val
   new val create(what': String val) => what = what'
+  fun string(): String val => what + ": couldn't locate this path"
 
 class val UnreadableFile
-  """A file or directory the loader could not read."""
+  """A file or directory that exists but could not be read."""
   let path: String val
-  new val create(path': String val) => path = path'
+  let why: String val
+  new val create(path': String val, why': String val) =>
+    path = path'
+    why = why'
+  fun string(): String val => path + ": " + why
 
 class val EmptyPackage
-  """A directory with no Pony source files in it."""
-  let dir: String val
-  new val create(dir': String val) => dir = dir'
+  """
+  A directory with no Pony source files in it, named as the program
+  names it: the locator of the `use` that reached it, or the target as
+  typed.
+  """
+  let name: String val
+  new val create(name': String val) => name = name'
+  fun string(): String val =>
+    "no Pony source files in package '" + name + "'"
 
 primitive _MaxFileBytes
   """
   The largest source file the loader will read: the design's per-file
   byte cap, surfaced as a diagnostic. Roughly ten times the largest file
-  in the ponyc tree, and far below the sizes at which a pathological
-  file's tree stops being workable.
+  in the ponyc tree.
   """
   fun apply(): USize => 1_048_576
 
@@ -30,10 +40,11 @@ type LoadError is (UnloadableRoot | UnreadableFile | EmptyPackage)
   """
   What stops a load before checking can start. An unresolvable `use`
   inside a loaded program is not one of these: that is an ordinary
-  diagnostic and the verdict is `fail`.
+  diagnostic and the verdict is `fail`. Each variant renders itself in
+  ponyc's wording via `string()`.
   """
 
-class val CheckDiag
+class val CheckDiagnostic
   """One diagnostic, located by file and byte span."""
   let file: String val
   let offset: USize
@@ -51,18 +62,26 @@ class val CheckDiag
     width = width'
     message = message'
 
+class val UnlocatedDiagnostic
+  """
+  A diagnostic with no source position: a load failure reported about a
+  path or a package rather than a span of source. Rendered as its
+  message alone, which carries ponyc's wording for the condition.
+  """
+  let message: String val
+  new val create(message': String val) => message = message'
+  fun string(): String val => message
+
 class val FileData
   """
   One loaded file: its text, its parse, and every per-file projection the
-  checker reads, computed once and cached across a batch -- recomputing
-  legality per case is what made a corpus run take seconds instead of
-  one.
+  checker reads, computed once and cached across a batch.
   """
   let path: String val
   let source: String val
   let tree: SyntaxTree val
   let uses: Array[ScannedUse] val
-  let legality: Array[CheckDiag] val
+  let legality: Array[CheckDiagnostic] val
 
   new val create(path': String val, source': String val) =>
     path = path'
@@ -81,7 +100,7 @@ class val FileData
     uses = ScanUses(tree)
     legality =
       recover val
-        [ CheckDiag(path', 0, 0,
+        [ CheckDiagnostic(path', 0, 0,
             "this file is larger than the checker's " +
               _MaxFileBytes().string() + " byte limit") ]
       end
@@ -100,18 +119,35 @@ class val PackageData
 
 class val Program
   """
-  A loaded program: the packages reached from the root, in load order, and
-  the diagnostics loading itself produced.
+  A loaded program: the packages reached from the root, in load order,
+  and what loading itself reported — located diagnostics at `use` sites,
+  and unlocated failures for paths and packages no span describes.
   """
   let packages: Array[PackageData] val
-  let load_diags: Array[CheckDiag] val
+  let load_diags: Array[CheckDiagnostic] val
+  let load_failures: Array[UnlocatedDiagnostic] val
 
   new val create(
     packages': Array[PackageData] val,
-    load_diags': Array[CheckDiag] val)
+    load_diags': Array[CheckDiagnostic] val,
+    load_failures': Array[UnlocatedDiagnostic] val)
   =>
     packages = packages'
     load_diags = load_diags'
+    load_failures = load_failures'
+
+  fun file(path: String val): (FileData | None) =>
+    """
+    The loaded file at `path`, or `None` when no package holds one.
+    """
+    for package in packages.values() do
+      for f in package.files.values() do
+        if f.path == path then
+          return f
+        end
+      end
+    end
+    None
 
 class Loader
   """
@@ -121,17 +157,18 @@ class Loader
   walk: an absolute path as given; relative to the using package's
   directory, where an explicit `./` or `../` locator that fails there
   fails outright; then each search root in order. A package's identity is
-  its canonical directory path, so two locators reaching one directory are
-  one package.
+  its canonical directory path, so two locators reaching one directory
+  are one package.
 
   Diagnostics echo whatever the loaded source names, and absolute paths
-  are honoured — ponyc parity, decided: running the checker over a
-  workspace trusts its dependencies to the degree compiling it would.
+  are honoured — ponyc parity: a checked workspace's dependencies are
+  trusted to the degree compiling it would trust them.
 
-  `_store` caches loaded packages by canonical directory across calls,
-  which is what makes a batch run parse the standard library once. Sound
-  within one run because a canonical path outside the case set maps to
-  immutable content.
+  Loaded packages are cached by canonical directory for the life of the
+  `Loader`, and the cache never invalidates: a `load` after a file
+  changes on disk returns the package as first read. One `Loader` serves
+  one batch over static input; a consumer tracking edits makes a fresh
+  one.
   """
   let _auth: FileAuth
   let _roots: Array[String val] val
@@ -143,8 +180,13 @@ class Loader
     _store = _store.create()
 
   fun ref load(target: String val): (Program | LoadError) =>
+    """
+    Load the package at `target` and everything it reaches through
+    `use`, returning the program in load order, or the `LoadError` that
+    stopped the load before checking could start.
+    """
     let root_dir =
-      match _canonical_dir(target)
+      match _resolve(target, ".")
       | let d: String val => d
       | None => return UnloadableRoot(target)
       end
@@ -154,91 +196,106 @@ class Loader
       | None => return UnloadableRoot("builtin")
       end
 
-    let ordered = Array[PackageData val]
-    let diags = recover iso Array[CheckDiag] end
+    let packages = recover iso Array[PackageData val] end
+    let diags = recover iso Array[CheckDiagnostic] end
+    let failures = recover iso Array[UnlocatedDiagnostic] end
     let seen = Set[String]
-    let queue = Array[String val]
+    // Each entry is a resolved directory, the locator that first named
+    // it, and for a dependency the `use` site to blame when the load
+    // fails, as ponyc's scope pass does.
+    let queue = Array[(String val, String val, (_UseSite | None))]
 
-    for dir in [builtin; root_dir].values() do
+    for (dir, locator) in
+      [(builtin, "builtin"); (root_dir, target)].values()
+    do
       if not seen.contains(dir) then
         seen.set(dir)
-        queue.push(dir)
+        queue.push((dir, locator, None))
       end
     end
 
     var i: USize = 0
     while i < queue.size() do
-      let dir = try queue(i)? else break end
+      (let dir, let locator, let site) = try queue(i)? else break end
       i = i + 1
       let package =
-        match _load_package(dir)
+        match _load_package(dir, locator)
         | let p: PackageData val => p
         | let e: LoadError =>
-          // The root and builtin are preconditions; a dependency that
-          // resolved but cannot be loaded is a diagnostic in ponyc's
-          // wording for what actually went wrong.
-          if (dir == root_dir) or (dir == builtin) then
-            return e
-          end
-          let why =
+          match site
+          | None =>
+            // The root and builtin are preconditions of the run.
             match e
-            | let _: EmptyPackage => "no Pony source files in package"
+            | let _: EmptyPackage => return EmptyPackage(locator)
             else
-              "couldn't locate this path"
+              return e
             end
-          diags.push(CheckDiag(dir, 0, 0, why))
+          | let s: _UseSite =>
+            failures.push(UnlocatedDiagnostic(e.string()))
+            diags.push(
+              CheckDiagnostic(s.file, s.offset, s.width,
+                "can't load package '" + locator + "'"))
+          end
           continue
         end
-      ordered.push(package)
+      packages.push(package)
 
       for file in package.files.values() do
         for u in file.uses.values() do
+          // ponyc's `uri_command` order: an unknown scheme, then an
+          // alias or guard the scheme's row forbids, each stops the
+          // `use` before any resolution.
+          if u.scheme is UseUnknown then
+            diags.push(
+              CheckDiagnostic(file.path, u.locator_offset, u.locator_width,
+                "Use scheme " + u.scheme_text + " not found"))
+            continue
+          end
+          if u.aliased and (not u.allow_name) then
+            diags.push(
+              CheckDiagnostic(file.path, u.alias_offset, u.alias_width,
+                "Use scheme " + u.scheme_text + " may not have an alias"))
+            continue
+          end
+          if u.guarded and (not u.allow_guard) then
+            // ponyc reports this against the alias clause, present or
+            // not, so an unaliased `use` is blamed whole.
+            let at = if u.aliased then u.alias_offset else u.offset end
+            let width = if u.aliased then u.alias_width else u.width end
+            diags.push(
+              CheckDiagnostic(file.path, at, width,
+                "Use scheme " + u.scheme_text + " may not have a guard"))
+            continue
+          end
           match u.scheme
           | UsePackage =>
-            if u.locator.size() == 0 then
-              diags.push(
-                CheckDiag(file.path, u.offset, u.width,
-                  "can't load package ''"))
-              continue
-            end
             match _resolve(u.locator, dir)
             | let found: String val =>
               if not seen.contains(found) then
                 seen.set(found)
-                queue.push(found)
+                queue.push(
+                  (found, u.locator,
+                    _UseSite(file.path, u.offset, u.width)))
               end
             | None =>
+              failures.push(
+                UnlocatedDiagnostic(
+                  u.locator + ": couldn't locate this path"))
               diags.push(
-                CheckDiag(file.path, u.offset, u.width,
+                CheckDiagnostic(file.path, u.offset, u.width,
                   "can't load package '" + u.locator + "'"))
             end
           | UseDirective => None
-          | UseUnknown =>
-            diags.push(
-              CheckDiag(file.path, u.offset, u.width,
-                "Use scheme " + u.scheme_text + " not found"))
-          end
-          if u.guarded and (u.scheme is UsePackage) then
-            diags.push(
-              CheckDiag(file.path, u.offset, u.width,
-                "Use scheme package: may not have a guard"))
-          end
-          if u.aliased and (u.scheme is UseDirective) then
-            diags.push(
-              CheckDiag(file.path, u.offset, u.width,
-                "Use scheme " + u.scheme_text + " may not have an alias"))
           end
         end
       end
     end
 
-    let packages = recover iso Array[PackageData val] end
-    for p in ordered.values() do
-      packages.push(p)
-    end
-    Program(consume packages, consume diags)
+    Program(consume packages, consume diags, consume failures)
 
-  fun ref _load_package(dir: String val): (PackageData val | LoadError) =>
+  fun ref _load_package(dir: String val, locator: String val)
+    : (PackageData val | LoadError)
+  =>
     try
       return _store(dir)?
     end
@@ -266,10 +323,23 @@ class Loader
         end
       end
     else
-      return UnreadableFile(dir)
+      // The directory resolved but would not list. ponyc splits this by
+      // errno; the files package does not carry one, so probe for the
+      // conditions it can see.
+      let why =
+        try
+          if FileInfo(FilePath(_auth, dir))?.directory then
+            "permission denied"
+          else
+            "not a directory"
+          end
+        else
+          "does not exist"
+        end
+      return UnreadableFile(dir, why)
     end
     if names.size() == 0 then
-      return EmptyPackage(dir)
+      return EmptyPackage(locator)
     end
     Sort[Array[String val], String val](names)
 
@@ -288,7 +358,7 @@ class Loader
           f.dispose()
           text
         else
-          return UnreadableFile(path)
+          return UnreadableFile(path, "can't open file " + path)
         end
       files.push(FileData(path, source))
     end
@@ -334,3 +404,14 @@ class Loader
     else
       None
     end
+
+class val _UseSite
+  """The span of the `use` a queued dependency load will blame."""
+  let file: String val
+  let offset: USize
+  let width: USize
+
+  new val create(file': String val, offset': USize, width': USize) =>
+    file = file'
+    offset = offset'
+    width = width'

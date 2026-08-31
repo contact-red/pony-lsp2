@@ -15,18 +15,31 @@ type UseScheme is (UsePackage | UseDirective | UseUnknown)
 class val ScannedUse
   """
   One `use` as the loader consumes it: the locator with its scheme
-  classified, whether it carried an alias or a guard, and where it is
-  written, in byte offsets.
+  classified, whether it carried an alias or a guard, and where its parts
+  are written, in byte offsets.
   """
   let scheme: UseScheme
   let scheme_text: String val
-    """The scheme as written, colon included; empty for a bare locator."""
+    """
+    The scheme's table name, colon included — `package:` for a bare
+    locator, as written for an unknown scheme.
+    """
   let locator: String val
     """The locator with any scheme prefix removed."""
   let aliased: Bool
   let guarded: Bool
+  let allow_name: Bool
+    """Whether ponyc's scheme row permits an alias."""
+  let allow_guard: Bool
+    """Whether ponyc's scheme row permits a guard."""
   let offset: USize
   let width: USize
+  let locator_offset: USize
+    """Where the locator string is written; the `use` itself when absent."""
+  let locator_width: USize
+  let alias_offset: USize
+    """Where the alias is written; the `use` itself when there is none."""
+  let alias_width: USize
 
   new val create(
     scheme': UseScheme,
@@ -34,16 +47,28 @@ class val ScannedUse
     locator': String val,
     aliased': Bool,
     guarded': Bool,
+    allow_name': Bool,
+    allow_guard': Bool,
     offset': USize,
-    width': USize)
+    width': USize,
+    locator_offset': USize,
+    locator_width': USize,
+    alias_offset': USize,
+    alias_width': USize)
   =>
     scheme = scheme'
     scheme_text = scheme_text'
     locator = locator'
     aliased = aliased'
     guarded = guarded'
+    allow_name = allow_name'
+    allow_guard = allow_guard'
     offset = offset'
     width = width'
+    locator_offset = locator_offset'
+    locator_width = locator_width'
+    alias_offset = alias_offset'
+    alias_width = alias_width'
 
 primitive ScanUses
   """
@@ -57,60 +82,200 @@ primitive ScanUses
   fun apply(tree: SyntaxTree val): Array[ScannedUse] val =>
     recover val
       let out = Array[ScannedUse]
-      for (element, _, at, kind, width) in tree.walk() do
-        if not (kind is NdUse) then
-          continue
+
+      // State for the `use` the walk is inside. The locator is the first
+      // string child before any guard: a bare-string guard is also a
+      // direct `TkString` child of the `NdUse` node, so scanning past
+      // `TkIf` would let the guard's flag name replace the locator.
+      var pending = false
+      var use_end: USize = 0
+      var child_depth: USize = 0
+      var use_at: USize = 0
+      var use_width: USize = 0
+      var aliased = false
+      var alias_at: USize = 0
+      var alias_width: USize = 0
+      var guarded = false
+      var ffi = false
+      var have_locator = false
+      var written: String val = ""
+      var written_at: USize = 0
+      var written_width: USize = 0
+
+      for (element, depth, at, kind, width) in tree.walk() do
+        if pending and (element >= use_end) then
+          if not ffi then
+            out.push(_scanned(written, aliased, guarded, use_at, use_width,
+              written_at, written_width, alias_at, alias_width))
+          end
+          pending = false
         end
-        var aliased = false
-        var guarded = false
-        var ffi = false
-        var written: String val = ""
-        try
-          for child in tree.children(element)? do
-            match tree.kind(child)?
-            | NdUseFFI => ffi = true
-            | NdUseName => aliased = true
-            | TkString => written = _Unquote(recover val tree.text(child)? end)
-            | TkIf => guarded = true
+        if kind is NdUse then
+          pending = true
+          use_end = element + (try tree.subtree_size(element)? else 1 end)
+          child_depth = depth + 1
+          use_at = at
+          use_width = width
+          aliased = false
+          guarded = false
+          ffi = false
+          have_locator = false
+          written = ""
+          written_at = at
+          written_width = width
+          alias_at = at
+          alias_width = width
+        elseif pending and (depth == child_depth) then
+          match kind
+          | NdUseFFI => ffi = true
+          | NdUseName =>
+            aliased = true
+            alias_at = at
+            alias_width = width
+          | TkString =>
+            if (not have_locator) and (not guarded) then
+              have_locator = true
+              written =
+                _Unquote(tree.source.substring(
+                  at.isize(), (at + width).isize()))
+              written_at = at
+              written_width = width
             end
+          | TkIf => guarded = true
           end
         end
-        if ffi or (written.size() == 0) then
-          continue
-        end
-        (let scheme, let scheme_text, let locator) = _classify(written)
-        out.push(
-          ScannedUse(scheme, scheme_text, locator, aliased, guarded,
-            at, width))
+      end
+      if pending and (not ffi) then
+        out.push(_scanned(written, aliased, guarded, use_at, use_width,
+          written_at, written_width, alias_at, alias_width))
       end
       out
     end
 
-  fun _classify(written: String val)
-    : (UseScheme, String val, String val)
+  fun _scanned(
+    written: String val,
+    aliased: Bool,
+    guarded: Bool,
+    use_at: USize,
+    use_width: USize,
+    written_at: USize,
+    written_width: USize,
+    alias_at: USize,
+    alias_width: USize)
+    : ScannedUse
   =>
+    (let scheme, let scheme_text, let locator, let allow_name,
+      let allow_guard) = _classify(written)
+    ScannedUse(scheme, scheme_text, locator, aliased, guarded,
+      allow_name, allow_guard, use_at, use_width,
+      written_at, written_width, alias_at, alias_width)
+
+  fun _classify(written: String val)
+    : (UseScheme, String val, String val, Bool, Bool)
+  =>
+    """
+    ponyc's scheme table (`use.c`), one row per scheme: the class, the
+    scheme as written, the locator, and whether the row permits an alias
+    and a guard.
+    """
     let colon =
       try
         written.find(":")?
       else
-        return (UsePackage, "", written)
+        return (UsePackage, "package:", written, true, false)
       end
     let scheme_text: String val = written.substring(0, colon + 1)
     let rest: String val = written.substring(colon + 1)
     match scheme_text
-    | "package:" => (UsePackage, scheme_text, rest)
-    | "lib:" => (UseDirective, scheme_text, rest)
-    | "path:" => (UseDirective, scheme_text, rest)
-    | "cincludedir:" => (UseDirective, scheme_text, rest)
-    | "cdefine:" => (UseDirective, scheme_text, rest)
+    | "package:" => (UsePackage, scheme_text, rest, true, false)
+    | "lib:" => (UseDirective, scheme_text, rest, false, true)
+    | "path:" => (UseDirective, scheme_text, rest, false, true)
+    | "cincludedir:" => (UseDirective, scheme_text, rest, false, true)
+    | "cdefine:" => (UseDirective, scheme_text, rest, false, true)
     else
-      (UseUnknown, scheme_text, rest)
+      (UseUnknown, scheme_text, rest, false, false)
     end
 
 primitive _Unquote
+  """
+  The value of a string literal as written in source: quotes stripped,
+  and for the ordinary quoted form, escapes decoded the way ponyc's
+  lexer decodes them. A triple-quoted string takes no escapes.
+  """
   fun apply(text: String val): String val =>
-    if (text.size() >= 2) and (text.compare_sub("\"", 1) is Equal) then
-      text.substring(1, text.size().isize() - 1)
+    if (text.size() >= 6) and
+      (text.compare_sub("\"\"\"", 3) is Equal) and
+      (text.compare_sub("\"\"\"", 3, (text.size() - 3).isize()) is Equal)
+    then
+      text.substring(3, text.size().isize() - 3)
+    elseif (text.size() >= 2) and (text.compare_sub("\"", 1) is Equal) then
+      _decode(text.substring(1, text.size().isize() - 1))
     else
       text
     end
+
+  fun _decode(text: String val): String val =>
+    if not text.contains("\\") then
+      return text
+    end
+    let out = recover iso String(text.size()) end
+    var i: USize = 0
+    while i < text.size() do
+      let c = try text(i)? else break end
+      if (c != '\\') or ((i + 1) >= text.size()) then
+        out.push(c)
+        i = i + 1
+        continue
+      end
+      let e = try text(i + 1)? else break end
+      i = i + 2
+      match e
+      | 'a' => out.push(0x07)
+      | 'b' => out.push(0x08)
+      | 'e' => out.push(0x1B)
+      | 'f' => out.push(0x0C)
+      | 'n' => out.push('\n')
+      | 'r' => out.push('\r')
+      | 't' => out.push('\t')
+      | 'v' => out.push(0x0B)
+      | '\\' => out.push('\\')
+      | '0' => out.push(0)
+      | '\'' => out.push('\'')
+      | '"' => out.push('"')
+      | 'x' =>
+        (let value, let used) = _hex(text, i, 2)
+        out.push(value.u8())
+        i = i + used
+      | 'u' =>
+        (let value, let used) = _hex(text, i, 4)
+        out.push_utf32(value)
+        i = i + used
+      | 'U' =>
+        (let value, let used) = _hex(text, i, 6)
+        out.push_utf32(value)
+        i = i + used
+      else
+        // Not an escape ponyc's lexer accepts; a parse diagnostic has
+        // already been raised, so carry the text through as written.
+        out.push(c)
+        out.push(e)
+      end
+    end
+    consume out
+
+  fun _hex(text: String val, from: USize, digits: USize): (U32, USize) =>
+    var value: U32 = 0
+    var used: USize = 0
+    while used < digits do
+      let c = try text(from + used)? else break end
+      let d: U32 =
+        if (c >= '0') and (c <= '9') then (c - '0').u32()
+        elseif (c >= 'a') and (c <= 'f') then ((c - 'a') + 10).u32()
+        elseif (c >= 'A') and (c <= 'F') then ((c - 'A') + 10).u32()
+        else break
+        end
+      value = (value * 16) + d
+      used = used + 1
+    end
+    (value, used)
+

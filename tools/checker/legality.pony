@@ -17,10 +17,10 @@ primitive CheckLegality
     file: String val,
     source: String val,
     tree: SyntaxTree val)
-    : Array[CheckDiag] val
+    : Array[CheckDiagnostic] val
   =>
     recover val
-      let out = Array[CheckDiag]
+      let out = Array[CheckDiagnostic]
       // Offsets and widths by element index, so structure walks below can
       // locate any element without recomputing.
       let at = Array[USize](tree.size())
@@ -127,7 +127,7 @@ primitive CheckLegality
     is_declaration: Bool,
     at: Array[USize] box,
     width: Array[USize] box,
-    out: Array[CheckDiag] ref)
+    out: Array[CheckDiagnostic] ref)
   =>
     try
       for child in tree.children(element)? do
@@ -177,7 +177,7 @@ primitive CheckLegality
     stack: Array[(USize, SyntaxKind)] box,
     at: Array[USize] box,
     width: Array[USize] box,
-    out: Array[CheckDiag] ref)
+    out: Array[CheckDiagnostic] ref)
   =>
     var in_params: (USize | None) = None
     var in_ffi = false
@@ -223,7 +223,7 @@ primitive CheckLegality
     element: USize,
     at: Array[USize] box,
     width: Array[USize] box,
-    out: Array[CheckDiag] ref)
+    out: Array[CheckDiagnostic] ref)
   =>
     var after_body = false
     try
@@ -259,7 +259,7 @@ primitive CheckLegality
     ifdef_el: USize,
     at: Array[USize] box,
     width: Array[USize] box,
-    out: Array[CheckDiag] ref)
+    out: Array[CheckDiagnostic] ref)
   =>
     """
     Flags in an `ifdef` condition: a string is a user build flag, which
@@ -311,7 +311,7 @@ primitive CheckLegality
     stack: Array[(USize, SyntaxKind)] box,
     at: Array[USize] box,
     width: Array[USize] box,
-    out: Array[CheckDiag] ref)
+    out: Array[CheckDiagnostic] ref)
   =>
     """
     Rules about a sequence's own children: semicolons separate expressions
@@ -423,7 +423,7 @@ primitive CheckLegality
     grandparent_kind: SyntaxKind,
     at: Array[USize] box,
     width: Array[USize] box,
-    out: Array[CheckDiag] ref)
+    out: Array[CheckDiagnostic] ref)
   =>
     var keyword: (SyntaxKind | None) = None
     var value: (USize | None) = None
@@ -558,7 +558,7 @@ primitive CheckLegality
     w: USize,
     at: Array[USize] box,
     width: Array[USize] box,
-    out: Array[CheckDiag] ref)
+    out: Array[CheckDiagnostic] ref)
   =>
     var ent: USize = 0
     var name: String val = ""
@@ -603,7 +603,7 @@ primitive CheckLegality
           "the Main actor cannot have type parameters")
       end
       if _EntityPerm.main(ent) == 'N' then
-        out.push(CheckDiag(file, a, w, "Main must be an actor"))
+        out.push(CheckDiagnostic(file, a, w, "Main must be an actor"))
       end
     end
     if name == "_" then
@@ -652,7 +652,7 @@ primitive CheckLegality
     members: USize,
     at: Array[USize] box,
     width: Array[USize] box,
-    out: Array[CheckDiag] ref)
+    out: Array[CheckDiagnostic] ref)
   =>
     try
       for member in tree.children(members)? do
@@ -676,7 +676,7 @@ primitive CheckLegality
     method: USize,
     at: Array[USize] box,
     width: Array[USize] box,
-    out: Array[CheckDiag] ref)
+    out: Array[CheckDiagnostic] ref)
   =>
     var mkind: USize = 0
     var cap: (USize | None) = None
@@ -732,7 +732,7 @@ primitive CheckLegality
     desc: String val,
     at: Array[USize] box,
     width: Array[USize] box,
-    out: Array[CheckDiag] ref)
+    out: Array[CheckDiagnostic] ref)
   =>
     let permission = try perms(index)? else 'X' end
     if (permission == 'N') and (actual isnt None) then
@@ -752,7 +752,7 @@ primitive CheckLegality
     provides: USize,
     at: Array[USize] box,
     width: Array[USize] box,
-    out: Array[CheckDiag] ref)
+    out: Array[CheckDiagnostic] ref)
   =>
     try
       for child in tree.children(provides)? do
@@ -769,7 +769,7 @@ primitive CheckLegality
     element: USize,
     at: Array[USize] box,
     width: Array[USize] box,
-    out: Array[CheckDiag] ref)
+    out: Array[CheckDiagnostic] ref)
   =>
     """
     ponyc's `check_provides_type`: a provides type is a nominal without a
@@ -829,7 +829,7 @@ primitive CheckLegality
     obj: USize,
     at: Array[USize] box,
     width: Array[USize] box,
-    out: Array[CheckDiag] ref)
+    out: Array[CheckDiagnostic] ref)
   =>
     try
       for child in tree.children(obj)? do
@@ -859,7 +859,7 @@ primitive CheckLegality
     what: String val,
     at: Array[USize] box,
     width: Array[USize] box,
-    out: Array[CheckDiag] ref)
+    out: Array[CheckDiagnostic] ref)
   =>
     try
       for child in tree.children(parent)? do
@@ -881,7 +881,7 @@ primitive CheckLegality
     typeargs: Array[(USize, USize)] box,
     at: Array[USize] box,
     width: Array[USize] box,
-    out: Array[CheckDiag] ref)
+    out: Array[CheckDiagnostic] ref)
   =>
     if _InConstraint(constraints, typeargs, nominal) then
       return
@@ -902,7 +902,7 @@ primitive CheckLegality
     consume_el: USize,
     at: Array[USize] box,
     width: Array[USize] box,
-    out: Array[CheckDiag] ref)
+    out: Array[CheckDiagnostic] ref)
   =>
     try
       for child in tree.children(consume_el)? do
@@ -957,7 +957,7 @@ primitive CheckLegality
     as_el: USize,
     at: Array[USize] box,
     width: Array[USize] box,
-    out: Array[CheckDiag] ref)
+    out: Array[CheckDiagnostic] ref)
   =>
     try
       for child in tree.children(as_el)? do
@@ -981,7 +981,7 @@ primitive CheckLegality
     anns: USize,
     at: Array[USize] box,
     width: Array[USize] box,
-    out: Array[CheckDiag] ref)
+    out: Array[CheckDiagnostic] ref)
   =>
     try
       for child in tree.children(anns)? do
@@ -1002,12 +1002,12 @@ primitive CheckLegality
     element: USize,
     at: Array[USize] box,
     width: Array[USize] box,
-    out: Array[CheckDiag] ref,
+    out: Array[CheckDiagnostic] ref,
     message: String val)
   =>
     let a = try at(element)? else 0 end
     let w = try width(element)? else 0 end
-    out.push(CheckDiag(file, a, w, message))
+    out.push(CheckDiagnostic(file, a, w, message))
 
 primitive _EntityDesc
   fun apply(ent: USize): String val =>
