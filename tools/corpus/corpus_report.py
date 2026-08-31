@@ -21,18 +21,24 @@ def main():
 
     only = None
     limited = set()
+    universe = None
 
     for f in flags:
         if f.startswith("--suites="):
             only = set(f.split("=", 1)[1].split(","))
         if f.startswith("--reach="):
-            # reach.tsv marks accepts that full ponyc rejects; a checker
-            # rejecting one of those agrees with ponyc, not with the
-            # case's pass-limited contract, so the expected verdict flips.
+            # reach.tsv is the per-case instrument: it holds only the
+            # cases standalone ponyc validates, so scoring restricts to
+            # them, and it marks accepts that full ponyc rejects -- a
+            # checker rejecting one of those agrees with ponyc, not with
+            # the case's pass-limited contract, so the expectation flips.
+            universe = set()
             for line in open(f.split("=", 1)[1], encoding="utf8"):
                 parts = line.rstrip("\n").split("\t")
-                if len(parts) >= 5 and parts[4] == "limited":
-                    limited.add((parts[0], parts[1]))
+                if len(parts) >= 5:
+                    universe.add((parts[0], parts[1]))
+                    if parts[4] == "limited":
+                        limited.add((parts[0], parts[1]))
 
     verdicts = {}
 
@@ -52,6 +58,9 @@ def main():
         message = parts[5] if len(parts) > 5 else ""
 
         if only is not None and suite not in only:
+            continue
+
+        if (universe is not None) and ((suite, test) not in universe):
             continue
 
         got = verdicts.get(path)
