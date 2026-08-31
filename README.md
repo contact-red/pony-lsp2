@@ -52,8 +52,10 @@ document has unsaved changes.
 343 tests pass, against the 332 the vendored copy started with.
 
 The batch checker covers its first slice: the driver, the loader, a
-parser depth guard that refuses over-deep nesting, and the ported
-subset of ponyc's syntax-pass legality rules. `tools/checker/probes`
+parser depth guard that turns over-deep nesting into a diagnostic
+instead of a crash — every grammar recursion cycle carries a guard,
+which `make test` re-derives from the source — and the ported subset
+of ponyc's syntax-pass legality rules. `tools/checker/probes`
 holds a fixture per rule family, pinning verdicts, messages, and one
 whole rendering, though not yet every variant of every ported rule.
 On the corpus's valid cases it rejects nothing ponyc accepts, and

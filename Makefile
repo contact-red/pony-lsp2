@@ -12,11 +12,17 @@ PATHS      := --path $(BRIDGE) --path $(LIBS) --path $(PONYC_LIB)
 
 .PHONY: all test syntax-test lsp lsp-test tools corpus mutants bind bench \
   types corpus-cases pass-reach memo-pays checker checker-probes \
-  checker-stdlib checker-corpus clean FORCE
+  checker-stdlib checker-corpus grammar-guard clean FORCE
 
 all: test
 
-test: syntax-test lsp-test checker-probes checker-stdlib
+test: grammar-guard syntax-test lsp-test checker-probes checker-stdlib
+
+# Every grammar recursion cycle must contain a depth-guarded rule; a
+# rule that opens an unguarded cycle fails here instead of crashing on
+# a deep enough file.
+grammar-guard:
+	python3 tools/grammar_guard.py upstream/tools/lib/ponylang/pony_syntax
 
 # The syntax tree, the parser and the analysis layer.
 syntax-test:

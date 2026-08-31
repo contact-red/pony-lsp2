@@ -10,12 +10,8 @@ primitive _TypeRule
   ponyc's `type`: an atom, optionally followed by a viewpoint.
   """
   fun apply(p: Parser ref) =>
-    if p.descend() then
-      p.error_and_recover(
-        "a less deeply nested type (grammar depth limit " +
-          _MaxNesting().string() + ")",
-        TokenSets.nesting_close())
-      return p.ascend()
+    if p.too_deep("type") then
+      return
     end
     let mark = p.checkpoint()
     _AtomType(p)

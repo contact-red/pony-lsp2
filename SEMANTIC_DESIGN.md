@@ -41,12 +41,13 @@ a complete list is at the end. Measurements cited by name live in
    set; deduplicating on frame pop keeps revalidation walks O(distinct
    edges). No initial values, no fixpoint machinery, no result storage.
 4. **`pony_syntax` gains a parser depth guard**, as a slice-0
-   prerequisite. The parser today segfaults at roughly 15,000 nested
-   parentheses (reproduced; about 20 KB of hostile input), and the batch
-   driver is one process over every case, so one such file kills every
-   verdict in the run. The guard turns the overflow into an ordinary
-   diagnostic. Until it lands, the exit-code contract below is unmeetable
-   on such inputs, and this document says so rather than promising it.
+   prerequisite. The parser recurses on the machine stack, and the
+   batch driver is one process over every case, so one over-deep file
+   would kill every verdict in the run. Every grammar recursion cycle
+   carries a guard: the set is not chosen by inspection — twice that
+   missed cycles that crashed — but enforced by `grammar_guard.py`,
+   which re-derives the call graph from the source in `make test` and
+   fails when a cycle contains no guarded rule.
 5. **The corpus instrument is rebuilt, in two steps, before any ceiling
    below is relied on.** `extract_corpus.py`'s pass detection reads only
    the one-argument `TEST_COMPILE` define, and three suites pass the

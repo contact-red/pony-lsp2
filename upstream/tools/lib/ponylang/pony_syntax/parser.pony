@@ -97,6 +97,25 @@ class Parser
     _depth = _depth + 1
     _depth > _MaxNesting()
 
+  fun ref too_deep(what: String val): Bool =>
+    """
+    Enter one level of grammar recursion; at the limit, refuse the
+    region with a diagnostic naming `what`, resynchronise to the
+    nearest closing token, and leave the depth balanced. Returns
+    whether it refused, and a guarded rule returns without parsing
+    further when it did — its other exits still `ascend`.
+    """
+    if descend() then
+      error_and_recover(
+        "a less deeply nested " + what + " (grammar depth limit " +
+          _MaxNesting().string() + ")",
+        TokenSets.nesting_close())
+      ascend()
+      true
+    else
+      false
+    end
+
   fun ref ascend() =>
     """
     Leave the level `descend` entered. Every `descend` is paired with one

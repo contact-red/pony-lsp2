@@ -16,12 +16,8 @@ primitive _RawSeq
   nothing at all.
   """
   fun apply(p: Parser ref) =>
-    if p.descend() then
-      p.error_and_recover(
-        "a less deeply nested expression (grammar depth limit " +
-          _MaxNesting().string() + ")",
-        TokenSets.nesting_close())
-      return p.ascend()
+    if p.too_deep("expression") then
+      return
     end
     p.start(NdSeq)
     _Statement(p, _ExprNormal)
@@ -113,9 +109,16 @@ primitive _Assignment
     let mark = p.checkpoint()
     _Infix(p, mode)
     if p.at(TkAssign) then
+      // The recursion on the right of `=` runs after _Infix has
+      // already returned, so this branch carries its own descent —
+      // at the entry it would also count every plain statement.
+      if p.too_deep("expression") then
+        return
+      end
       p.bump()
       _Assignment(p, _ExprNormal)
       p.wrap_from(mark, NdAssign)
+      p.ascend()
     end
 
 primitive _Infix
@@ -172,12 +175,8 @@ primitive _Term
     // structures in condition position included, so the depth guard
     // here covers what the guard in the sequence rule cannot: nesting
     // that never opens a new sequence.
-    if p.descend() then
-      p.error_and_recover(
-        "a less deeply nested expression (grammar depth limit " +
-          _MaxNesting().string() + ")",
-        TokenSets.nesting_close())
-      return p.ascend()
+    if p.too_deep("expression") then
+      return
     end
     let kind = p.current()
     match kind
@@ -238,12 +237,8 @@ primitive _ParamPattern
     if _IsPrefixOp(p.current(), mode) then
       // A prefix chain recurses here without passing the sequence rule
       // or `_Term`, so it carries its own descent.
-      if p.descend() then
-        p.error_and_recover(
-          "a less deeply nested expression (grammar depth limit " +
-            _MaxNesting().string() + ")",
-          TokenSets.nesting_close())
-        return p.ascend()
+      if p.too_deep("expression") then
+        return
       end
       p.start(NdUnaryOp)
       p.bump()
@@ -362,7 +357,13 @@ primitive _ConstExpr
   ponyc's `const_expr`: a `#` and the expression it makes constant.
   """
   fun apply(p: Parser ref) =>
+    // Reached from a type argument without passing the sequence or
+    // term rules, so it carries its own descent.
+    if p.too_deep("expression") then
+      return
+    end
     p.start(NdConstExpr)
     p.bump()
     _Postfix(p, _ExprNormal)
     p.finish()
+    p.ascend()
