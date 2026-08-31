@@ -866,7 +866,7 @@ primitive CheckLegality
         for child in tree.children(element)? do
           match tree.kind(child)?
           | TkPipe =>
-            _diag(file, element, at, width, out, _invalid_provides())
+            _diag(file, child, at, width, out, _invalid_provides())
             return
           | NdNominal | NdGroupedType | NdInfixType =>
             _provides_type(file, tree, child, at, width, out)
@@ -889,9 +889,33 @@ primitive CheckLegality
           end
         end
       else
-        _diag(file, element, at, width, out, _invalid_provides())
+        _diag(file, _provides_anchor(tree, element), at, width, out,
+          _invalid_provides())
       end
     end
+
+  fun _provides_anchor(tree: SyntaxTree val, element: USize): USize =>
+    """
+    The element to blame for an invalid provides type. ponyc's AST
+    positions a constructed node at the token that formed it — a tuple
+    at its comma, a viewpoint at its arrow — where this tree's nodes
+    start at their first child.
+    """
+    try
+      let want =
+        match tree.kind(element)?
+        | NdTupleType => TkComma
+        | NdViewpoint => TkArrow
+        else
+          return element
+        end
+      for child in tree.children(element)? do
+        if tree.kind(child)? is want then
+          return child
+        end
+      end
+    end
+    element
 
   fun _invalid_provides(): String val =>
     "invalid provides type. Can only be interfaces, traits and intersects " +
