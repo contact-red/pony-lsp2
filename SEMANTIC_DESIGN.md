@@ -412,13 +412,18 @@ it never noticed:
 
 1. **The corpus**, floor-relative, per case — the headline gate.
    Diagnostics render with program-level load failures first, then in
-   package load order, file order, and byte order within a file. In
-   explain mode, ponyc's expected message — which `extract_corpus.py` already
-   stores in the manifest — is substring-matched against *all* of the
-   case's emitted messages rather than only the first, since ponyc's own
-   first message depends on its pass ordering, which this design does not
-   reproduce. A case whose expected message matches none emitted is the
-   rejects-for-the-wrong-reason defect a binary verdict cannot see.
+   package load order, file order, and byte order within a file. Built
+   (`make message-oracle`): ponyc's expected message — which
+   `extract_corpus.py` already stores in the manifest — is
+   substring-matched against *all* of the case's emitted messages
+   rather than only the first, since ponyc's own first message depends
+   on its pass ordering, which this design does not reproduce. A case
+   whose expected message matches none emitted is the
+   rejects-for-the-wrong-reason defect a binary verdict cannot see;
+   deliberate divergences are recorded with reasons in
+   `message_exceptions.tsv`, and today those are the two cases where
+   ponyc abandons a block as unterminated and the tolerant parser
+   recovers inside it instead.
 2. **`tools/sig_agreement`**: `method_table` printed per entity and
    diffed against `ponyc --pass=traits --astpackage` over the standard
    library. The probe has been run: the dump is on stderr, is total over

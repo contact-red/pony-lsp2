@@ -21,10 +21,15 @@ or non-zero.
 
 `corpus_report.py` compares a verdict file against the manifest;
 `make checker-corpus` produces one from `tools/checker` and scores it
-against the instrument's valid universe. `make column-oracle` goes one
-level below the verdict: wherever the checker and ponyc emit the same
-message on a reject case, it requires the line and column to match, so
-a diagnostic that drifts from ponyc's position fails a gate instead of
+against the instrument's valid universe. Two oracles go below the verdict.
+`make message-oracle` requires an agreed rejection whose manifest row
+carries ponyc's expected message to emit that message — a case
+rejected for the wrong reason scores as agreement in the headline
+rate, which is how ponyq shipped ninety-nine wrong rejections it never
+noticed; deliberate divergences live in `message_exceptions.tsv` with
+their reasons. `make column-oracle` requires that wherever the checker
+and ponyc emit the same message, the line and column match, so a
+diagnostic that drifts from ponyc's position fails a gate instead of
 waiting for a reader to notice the caret.
 
 ## What the extraction leaves out
