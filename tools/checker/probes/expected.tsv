@@ -1,5 +1,17 @@
 alias_method_fail	fail	type alias functions are not allowed
+annotation_capi_generic_fail	fail	generic types cannot be exported directly; export a concrete reification via a type alias
+annotation_capi_private_fail	fail	only public types can be exported
+annotation_capi_trait_fail	fail	traits and interfaces cannot be exported
+annotation_capi_union_alias_fail	fail	only type aliases for a single concrete type can be exported
+annotation_exhaustive_fail	fail	an 'exhaustive' annotation can only appear on a match expression
+annotation_likely_body_fail	fail	a 'likely' annotation can only appear on the condition of an if, while, or until, or on the case of a match
+annotation_likely_fail	fail	a 'likely' annotation can only appear on the condition of an if, while, or until, or on the case of a match
+annotation_likely_until_ok	ok	
+annotation_nodoc_alias_fail	fail	'nodoc' annotation isn't valid here
+annotation_nosupertype_fail	fail	a 'nosupertype' annotation can only appear on a concrete type declaration
+annotation_packed_fail	fail	a 'packed' annotation can only appear on a struct declaration
 bare_lambda_typeparams_fail	fail	a bare lambda cannot specify type parameters
+cap_only_type_fail	fail	a type cannot be only a capability
 cast_literal_fail	fail	Cannot cast uninferred numeric literal
 clean_minimal	ok	
 compile_error_docstring	fail	a compile error must be the entire ifdef clause
@@ -10,18 +22,45 @@ consume_grouped_expr_fail	fail	Consume expressions must specify an identifier or
 consume_grouped_tuple_ok	ok	
 deep_prefix_chain	fail	a less deeply nested expression
 deep_type_fail	fail	a less deeply nested type
+dontcare_cap_fail	fail	'_' cannot specify capability
+dontcare_in_package_fail	fail	'_' cannot be in a package
+dontcare_type_args_fail	fail	'_' cannot have generic arguments
 ellipsis_outside_ffi_fail	fail	... may only appear in FFI declarations
+embed_local_fail	fail	Local variables cannot be embedded
 ephemeral_provides_fail	fail	can't specify ephemeral in a provides type
+ffi_named_args_fail	fail	FFIs cannot take named arguments
 ffi_two_return_types	fail	FFI functions must specify a single return type
+fun_return_cap_fail	fail	function return type: box
 guard_on_package_use	fail	Use scheme package: may not have a guard
+ifdef_invalid_fail	fail	Invalid ifdef condition
+ifdef_not_ok	ok	
+ifdef_sequence_fail	fail	Sequence not allowed in ifdef condition
 intrinsic_outside_body_fail	fail	a compile intrinsic must be a method body
+lambda_capture_typed_fail	fail	value missing for lambda expression capture (cannot specify type without value)
+lambda_capture_valued_ok	ok	
+lambda_return_cap_fail	fail	lambda return type: val
+lambda_this_capture_fail	fail	use a named capture to capture 'this'
 load_failed_root	load-failed	no Pony source files in package
 main_not_actor_fail	fail	Main must be an actor
+match_last_case_fail	fail	Last case in match must have a body
+method_docstring_body_fail	fail	methods with bodies must put docstrings in the body
+name_double_underscore_fail	fail	method name "my__thing" cannot contain double underscores
+name_local_case_fail	fail	local variable name "Foo" must start a-z
+name_method_tick_fail	fail	method name "bad'" cannot contain prime (')
+name_ticks_ok	ok	
+name_trailing_underscore_fail	fail	field name "my_" cannot have a trailing underscore
+name_type_case_fail	fail	class name "fooBar" must start A-Z or _(A-Z)
+name_type_param_fail	fail	type parameter name "a" must start A-Z
+nosupertype_provides_fail	fail	a 'nosupertype' type cannot specify a provides list
 parse_error_suppresses_fail	fail	expected a parameter name
 platform_as_user_flag_fail	fail	"linux" is not a valid user build flag
+precedence_mix_fail	fail	Operator precedence is not supported. Parentheses required.
+precedence_parens_ok	ok	
 primitive_behaviour_fail	fail	primitive behaviours are not allowed
 provides_tuple_fail	fail	invalid provides type
 render_order	fail	can't load package 'nosuch_pkg_render'
+return_outside_body_fail	fail	return must occur in a method body
+return_value_behaviour_fail	fail	A return in a constructor or a behaviour can't return a value
 semi_leading_newline	fail	Unexpected semicolon
 semi_missing_leaf	fail	Use a semi colon to separate expressions
 semi_same_line_ok	ok	
@@ -29,17 +68,28 @@ semi_trailing	fail	Unexpected semicolon
 string_array_semi_ok	ok	
 struct_behaviour_fail	fail	struct behaviours are not allowed
 struct_capi_fail	fail	struct cannot specify C api
+thistype_box_ok	ok	
+thistype_no_method_fail	fail	can only use 'this' for a viewpoint in a method
+thistype_not_viewpoint_fail	fail	in a type, 'this' can only be used as a viewpoint
+thistype_ref_method_fail	fail	can only use 'this' for a viewpoint in a box function
 tp_default_gencap_fail	fail	a capability set can only appear in a type constraint
 tp_default_tuple_ok	ok	
 tuple_constraint_fail	fail	tuple types can't be used as type constraints
+type_operator_mix_fail	fail	Operator precedence is not supported. Parentheses required.
 unknown_platform_flag_fail	fail	"nosuchos" is not a valid platform flag
 unreachable_after_return	fail	Unreachable code
 unterminated_comment_fail	fail	found TkLexError
 use_alias_directive_fail	fail	Use scheme lib: may not have an alias
+use_alias_name_fail	fail	package name "BadAlias" must start a-z
 use_empty_dep_fail	fail	can't load package './empty'
 use_empty_locator_ok	ok	
 use_escaped_locator_ok	ok	
+use_ffi_alias_fail	fail	Use FFI may not have an alias
 use_guard_directive_ok	ok	
 use_guard_flag_fail	fail	"nosuchflag" is not a valid platform flag
+use_guard_invalid_fail	fail	Invalid use guard
 use_missing_dep_fail	fail	can't load package 'no_such_package_zz'
 use_scheme_unknown_fail	fail	Use scheme test: not found
+value_formal_arg_fail	fail	Value formal parameters not yet supported
+viewpoint_cap_right_fail	fail	refcaps cannot appear to the right of a viewpoint
+viewpoint_this_right_fail	fail	'this' cannot appear to the right of a viewpoint

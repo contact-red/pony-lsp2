@@ -468,11 +468,13 @@ unmodified (`<dir>\t(ok|fail|load-failed)`, exit 0 for the batch; single
 mode exits 0 clean / 255 with ponyc-shaped errors off `LineIndex(Utf8)`;
 a usage error or internal failure exits 1, distinct from both
 verdicts — a crash never manufactures one); the loader; the parser
-depth guard (divergence 4); and ponyc's `syntax`-pass legality rules — body-free shape checks
-over the existing lossless tree. Measured: 130 rejections error at
-`parse` or `syntax`, **+9.4 points**. Whether the deliberately tolerant
-parser converts its facts into all 130 verdicts is the open caveat this
-slice closes.
+depth guard (divergence 4); and ponyc's `syntax` pass — body-free
+shape checks over the existing lossless tree, ported in full, decided
+by Red (the package-docstring rule, which ponyc makes in its sugar
+pass, is the one boundary exception). Measured: 130 rejections error
+at `parse` or `syntax`, **+9.4 points**, and the checker catches all
+130 — the tolerant parser converts its facts into every verdict,
+which was the open caveat this slice carried.
 
 **Slice 1 — name errors.** `pony_bind` wired to the loader: unresolved
 names and unresolved `use`s as diagnostics (the `fail` side of the

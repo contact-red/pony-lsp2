@@ -32,11 +32,17 @@ class _Diags
   fun ref report_with_info(
     element: USize,
     message: String val,
-    info: String val)
+    info: String val,
+    info_element: (USize | None) = None)
   =>
+    let info_at =
+      match info_element
+      | let e: USize => offset(e)
+      | None => offset(element)
+      end
     out.push(
       CheckDiagnostic(file, offset(element), message,
-        CheckDiagnostic(file, offset(element), info)))
+        CheckDiagnostic(file, info_at, info)))
 
   fun text(element: USize): String val =>
     let from = offset(element)
@@ -45,13 +51,16 @@ class _Diags
 
 primitive CheckLegality
   """
-  ponyc's `syntax`-pass legality rules that need nothing but the tree,
-  ported with ponyc's own wordings: the entity and method permission
-  tables from `pass/syntax.c` row for row, the Main checks, the reserved
-  `_` names, the type-alias type requirement, the provides-type shape,
-  object-literal legality, compile intrinsics and errors, semicolon
-  placement, FFI legality, bare lambdas, ifdef flags, constraints,
-  consume shapes, and casts.
+  ponyc's `syntax` pass, ported with ponyc's own wordings: the entity
+  and method permission tables from `pass/syntax.c` row for row, the
+  name rules from `ast/id.c`, the Main checks, the type-alias type
+  requirement, the provides-type shape, object-literal legality,
+  viewpoints and `this` types, `_` nominals, match completeness,
+  operator precedence, value formal parameters, capability positions,
+  locals and embeds, lambdas and their captures, compile intrinsics
+  and errors, semicolon placement, FFI legality, ifdef and use-guard
+  condition shapes, annotation placement, constraints, consume shapes,
+  returns, and casts.
   """
   fun apply(file: String val, tree: SyntaxTree val)
     : Array[CheckDiagnostic] val
@@ -119,10 +128,13 @@ primitive CheckLegality
           end
         elseif (kind is NdBareLambda) or (kind is NdBareLambdaType) then
           _bare_lambda(d, element)
+          _lambda(d, element)
+        elseif kind is NdLambda then
+          _lambda(d, element)
         elseif kind is NdIfDef then
           _ifdef_flags(d, element)
         elseif kind is NdUse then
-          _use_guard_flags(d, element)
+          _use_rules(d, element)
         elseif kind is NdSeq then
           _seq(d, element, stack)
         elseif kind is TkEllipsis then
@@ -132,6 +144,7 @@ primitive CheckLegality
             d.report(_anchor(tree, element),
               "arrow types can't be used as type constraints")
           end
+          _viewpoint_right(d, element)
         elseif kind is NdTupleType then
           if in_tp_constraint(element) then
             d.report(_anchor(tree, element),
@@ -139,12 +152,54 @@ primitive CheckLegality
           end
         elseif kind is NdNominal then
           _gencap_outside_constraint(d, element, gencap_constraint)
+          _nominal_dontcare(d, element)
+        elseif kind is NdThisType then
+          _thistype(d, element, stack)
+        elseif kind is NdMatch then
+          _match_last_case(d, element)
+        elseif kind is NdBinOp then
+          _infix_precedence(d, element)
+        elseif kind is NdInfixType then
+          _type_infix_mix(d, element)
+        elseif kind is NdValueFormalArg then
+          let parent =
+            try stack(stack.size() - 1)?._1 else element end
+          d.report_with_info(element,
+            "Value formal parameters not yet supported",
+            "Note that many functions including array indexing use the " +
+              "apply method rather than square brackets"
+            where info_element = parent)
+        elseif kind is NdConstExpr then
+          d.report(element, "Compile time expressions not yet supported")
+        elseif (kind is TkIso) or (kind is TkTrn) or (kind is TkRef) or
+          (kind is TkVal) or (kind is TkBox) or (kind is TkTag)
+        then
+          _cap_as_type(d, element, stack)
+        elseif kind is NdLocal then
+          match _id_of(tree, element)
+          | let id: USize =>
+            _check_id(d, id, "local variable"
+              where start_lower = true, allow_underscore = true,
+                allow_tick = true, allow_dontcare = true)
+          end
+          try
+            for child in tree.children(element)? do
+              if tree.kind(child)? is TkEmbed then
+                d.report(element, "Local variables cannot be embedded")
+              end
+            end
+          end
+        elseif kind is NdTypeParam then
+          match _id_of(tree, element)
+          | let id: USize =>
+            _check_id(d, id, "type parameter" where start_upper = true)
+          end
         elseif kind is NdConsume then
           _consume(d, element)
         elseif kind is NdAsOp then
           _cast(d, element)
         elseif kind is NdAnnotations then
-          _annotations(d, element)
+          _annotations(d, element, stack)
         end
         stack.push((element, kind))
       end
@@ -170,6 +225,16 @@ primitive CheckLegality
     is_declaration: Bool)
   =>
     let tree = d.tree
+    try
+      var i = element + 1
+      let size = tree.subtree_size(element)?
+      while i < (element + size) do
+        if tree.kind(i)? is NdNamedArgs then
+          d.report(i, "FFIs cannot take named arguments")
+        end
+        i = i + (try tree.subtree_size(i)? else 1 end)
+      end
+    end
     try
       for child in tree.children(element)? do
         match tree.kind(child)?
@@ -279,12 +344,593 @@ primitive CheckLegality
       end
     end
 
+  fun _check_id(
+    d: _Diags,
+    id: USize,
+    desc: String val,
+    start_upper: Bool = false,
+    start_lower: Bool = false,
+    allow_leading_underscore: Bool = false,
+    allow_underscore: Bool = false,
+    allow_tick: Bool = false,
+    allow_dontcare: Bool = false)
+  =>
+    """
+    ponyc's `check_id` (`ast/id.c`): the character rules a name obeys,
+    with the position's spec passed the way id.c's flag word is.
+    """
+    let full = d.text(id)
+    var name = full
+    var prev: U8 = 0
+    if try full(0)? == '$' else false end then
+      // Placed by the compiler; id.c trusts it.
+      return
+    end
+    if try full(0)? == '_' else false end then
+      name = full.substring(1)
+      prev = '_'
+      if name.size() == 0 then
+        if not allow_dontcare then
+          d.report(id, desc + " name cannot be \"" + full + "\"")
+        end
+        return
+      end
+      if not allow_leading_underscore then
+        d.report(id,
+          desc + " name \"" + full + "\" cannot start with underscores")
+        return
+      end
+    end
+    let first = try name(0)? else 0 end
+    if start_lower and ((first < 'a') or (first > 'z')) then
+      if not allow_leading_underscore then
+        d.report(id, desc + " name \"" + full + "\" must start a-z")
+      else
+        d.report(id,
+          desc + " name \"" + full + "\" must start a-z or _(a-z)")
+      end
+      return
+    end
+    if start_upper and ((first < 'A') or (first > 'Z')) then
+      if not allow_leading_underscore then
+        d.report(id, desc + " name \"" + full + "\" must start A-Z")
+      else
+        d.report(id,
+          desc + " name \"" + full + "\" must start A-Z or _(A-Z)")
+      end
+      return
+    end
+    var i: USize = 0
+    while i < name.size() do
+      let c = try name(i)? else 0 end
+      if c == '\'' then
+        break
+      end
+      if c == '_' then
+        if not allow_underscore then
+          d.report(id,
+            desc + " name \"" + full + "\" cannot contain underscores")
+          return
+        end
+        if prev == '_' then
+          d.report(id, desc + " name \"" + full +
+            "\" cannot contain double underscores")
+          return
+        end
+      end
+      prev = c
+      i = i + 1
+    end
+    if prev == '_' then
+      d.report(id,
+        desc + " name \"" + full + "\" cannot have a trailing underscore")
+      return
+    end
+    if i == name.size() then
+      return
+    end
+    if not allow_tick then
+      d.report(id,
+        desc + " name \"" + full + "\" cannot contain prime (')")
+      return
+    end
+    while i < name.size() do
+      if try name(i)? != '\'' else true end then
+        d.report(id, "prime(') can only appear at the end of " + desc +
+          " name \"" + full + "\"")
+        return
+      end
+      i = i + 1
+    end
+
+  fun _id_of(tree: SyntaxTree val, parent: USize): (USize | None) =>
+    """
+    The first identifier child of `parent`.
+    """
+    try
+      for child in tree.children(parent)? do
+        if tree.kind(child)? is TkId then
+          return child
+        end
+      end
+    end
+    None
+
+  fun _thistype(
+    d: _Diags,
+    element: USize,
+    stack: Array[(USize, SyntaxKind)] box)
+  =>
+    """
+    ponyc's `syntax_thistype`: in a type, `this` is only a viewpoint,
+    only in a method, and only in a box function.
+    """
+    let tree = d.tree
+    let parent_kind =
+      try stack(stack.size() - 1)?._2 else NdModule end
+    if not (parent_kind is NdViewpoint) then
+      d.report(element,
+        "in a type, 'this' can only be used as a viewpoint")
+    end
+    var i = stack.size()
+    while i > 0 do
+      i = i - 1
+      (let el, let kind) = try stack(i)? else return end
+      if kind is NdMethod then
+        try
+          var named = false
+          for child in tree.children(el)? do
+            match tree.kind(child)?
+            | TkId => named = true
+            | TkIso | TkTrn | TkRef | TkVal | TkTag =>
+              if not named then
+                d.report(element,
+                  "can only use 'this' for a viewpoint in a box function")
+                return
+              end
+            end
+          end
+        end
+        return
+      end
+    end
+    d.report(element,
+      "can only use 'this' for a viewpoint in a method")
+
+  fun _viewpoint_right(d: _Diags, element: USize) =>
+    """
+    ponyc's `syntax_arrow` right-hand clauses: neither `this` nor a
+    refcap may appear to the right of a viewpoint.
+    """
+    let tree = d.tree
+    try
+      var after_arrow = false
+      for child in tree.children(element)? do
+        match tree.kind(child)?
+        | TkWhitespace | TkLineComment | TkNestedComment => None
+        | TkArrow => after_arrow = true
+        | NdThisType =>
+          if after_arrow then
+            d.report(_anchor(tree, element),
+              "'this' cannot appear to the right of a viewpoint")
+            return
+          end
+        | TkIso | TkTrn | TkRef | TkVal | TkBox | TkTag =>
+          if after_arrow then
+            d.report(_anchor(tree, element),
+              "refcaps cannot appear to the right of a viewpoint")
+            return
+          end
+        end
+      end
+    end
+
+  fun _nominal_dontcare(d: _Diags, element: USize) =>
+    """
+    ponyc's `syntax_nominal`: a `_` type takes no package, no type
+    arguments, no capability, and no modifier.
+    """
+    let tree = d.tree
+    try
+      var package: (USize | None) = None
+      var name: (USize | None) = None
+      var typeargs: (USize | None) = None
+      var cap: (USize | None) = None
+      var eph: (USize | None) = None
+      for child in tree.children(element)? do
+        match tree.kind(child)?
+        | TkId =>
+          match name
+          | None => name = child
+          | let first: USize =>
+            package = first
+            name = child
+          end
+        | NdTypeArgs => typeargs = child
+        | TkIso | TkTrn | TkRef | TkVal | TkBox | TkTag
+        | TkCapRead | TkCapSend | TkCapShare | TkCapAlias | TkCapAny =>
+          cap = child
+        | TkEphemeral | TkAliased => eph = child
+        end
+      end
+      match name
+      | let id: USize if d.text(id) == "_" =>
+        match package
+        | let p: USize => d.report(p, "'_' cannot be in a package")
+        end
+        match typeargs
+        | let t: USize => d.report(t, "'_' cannot have generic arguments")
+        end
+        match cap
+        | let c: USize => d.report(c, "'_' cannot specify capability")
+        end
+        match eph
+        | let e: USize =>
+          d.report(e, "'_' cannot specify capability modifier")
+        end
+      end
+    end
+
+  fun _match_last_case(d: _Diags, element: USize) =>
+    """
+    ponyc's `syntax_match`: the last case must have a body.
+    """
+    let tree = d.tree
+    try
+      for child in tree.children(element)? do
+        if tree.kind(child)? is NdCases then
+          var last: (USize | None) = None
+          for c in tree.children(child)? do
+            if tree.kind(c)? is NdCase then
+              last = c
+            end
+          end
+          match last
+          | let case_el: USize =>
+            var has_body = false
+            for part in tree.children(case_el)? do
+              if tree.kind(part)? is TkDblarrow then
+                has_body = true
+              end
+            end
+            if not has_body then
+              d.report(case_el, "Last case in match must have a body")
+            end
+          end
+        end
+      end
+    end
+
+  fun _infix_precedence(d: _Diags, element: USize) =>
+    """
+    ponyc's `syntax_infix_expr`: mixing different binary operators
+    without parentheses is an error — Pony has no precedence. This
+    tree nests an unparenthesised chain directly, so a binary operand
+    that is itself a binary node with a different operator is the
+    mixed chain; parentheses wrap the operand in a group and exempt
+    it.
+    """
+    let tree = d.tree
+    try
+      let at =
+        match _binop_token(tree, element)
+        | let t: USize => t
+        | None => return
+        end
+      let op = tree.kind(at)?
+      for child in tree.children(element)? do
+        if tree.kind(child)? is NdBinOp then
+          match _binop_token(tree, child)
+          | let t: USize =>
+            if not (tree.kind(t)? is op) then
+              d.report(at,
+                "Operator precedence is not supported. " +
+                  "Parentheses required.")
+              return
+            end
+          end
+        end
+      end
+    end
+
+  fun _binop_token(tree: SyntaxTree val, element: USize): (USize | None) =>
+    try
+      let size = tree.subtree_size(element)?
+      // Direct children only: each step skips a whole subtree.
+      var i = element + 1
+      while i < (element + size) do
+        match tree.kind(i)?
+        | TkAnd | TkOr | TkXor
+        | TkPlus | TkMinus | TkMultiply | TkDivide | TkRem | TkMod
+        | TkPlusTilde | TkMinusTilde | TkMultiplyTilde
+        | TkDivideTilde | TkRemTilde | TkModTilde
+        | TkLshift | TkRshift | TkLshiftTilde | TkRshiftTilde
+        | TkIs | TkIsnt
+        | TkEq | TkNe | TkLt | TkLe | TkGe | TkGt
+        | TkEqTilde | TkNeTilde | TkLtTilde | TkLeTilde
+        | TkGeTilde | TkGtTilde =>
+          return i
+        end
+        i = i + (try tree.subtree_size(i)? else 1 end)
+      end
+    end
+    None
+
+  fun _type_infix_mix(d: _Diags, element: USize) =>
+    """
+    ponyc's precedence rule on type operators: a union and an
+    intersection cannot mix without parentheses. This tree keeps an
+    unparenthesised type chain flat, so the mix is both operators in
+    one infix-type node.
+    """
+    let tree = d.tree
+    try
+      var first: (SyntaxKind | None) = None
+      for child in tree.children(element)? do
+        match tree.kind(child)?
+        | TkPipe | TkIsecttype =>
+          match first
+          | None => first = tree.kind(child)?
+          | let f: SyntaxKind =>
+            if not (tree.kind(child)? is f) then
+              d.report(child,
+                "Operator precedence is not supported. " +
+                  "Parentheses required.")
+              return
+            end
+          end
+        end
+      end
+    end
+
+  fun _cap_as_type(
+    d: _Diags,
+    element: USize,
+    stack: Array[(USize, SyntaxKind)] box)
+  =>
+    """
+    ponyc's `syntax_cap`: a bare capability is not a type. The parents
+    a capability may sit under are the constructs that take one — a
+    nominal's suffix, a viewpoint, an entity or method or lambda
+    header, a recover or consume — and anywhere else it is a type made
+    of nothing but a capability.
+    """
+    let parent_kind =
+      try stack(stack.size() - 1)?._2 else NdModule end
+    match parent_kind
+    | NdNominal | NdViewpoint | NdObject | NdLambda | NdBareLambda
+    | NdRecover | NdConsume | NdMethod | NdClassDef | NdLambdaType
+    | NdBareLambdaType =>
+      None
+    else
+      d.report(element, "a type cannot be only a capability")
+    end
+
+  fun _lambda(d: _Diags, element: USize) =>
+    """
+    ponyc's `syntax_lambda` clauses shared by both lambda forms: the
+    return type cannot be a capability, and `this` is captured by
+    name, never bare.
+    """
+    let tree = d.tree
+    try
+      var after_colon = false
+      for child in tree.children(element)? do
+        match tree.kind(child)?
+        | TkWhitespace | TkLineComment | TkNestedComment => None
+        | TkColon => after_colon = true
+        | TkDblarrow => after_colon = false
+        | TkIso | TkTrn | TkRef | TkVal | TkBox | TkTag =>
+          if after_colon then
+            d.report_with_info(child,
+              "lambda return type: " + d.text(child),
+              "lambda return type cannot be capability")
+            after_colon = false
+          end
+        | NdLambdaCaptures =>
+          for capture in tree.children(child)? do
+            match tree.kind(capture)?
+            | NdThis =>
+              d.report(capture, "use a named capture to capture 'this'")
+            | NdLambdaCapture =>
+              var typed = false
+              var valued = false
+              for part in tree.children(capture)? do
+                match tree.kind(part)?
+                | TkColon => typed = true
+                | TkAssign => valued = true
+                end
+              end
+              if typed and (not valued) then
+                d.report(capture, "value missing for lambda expression " +
+                  "capture (cannot specify type without value)")
+              end
+            end
+          end
+        else
+          if after_colon then
+            after_colon = false
+          end
+        end
+      end
+    end
+
+  fun _annotation_location(
+    d: _Diags,
+    name_el: USize,
+    name: String val,
+    stack: Array[(USize, SyntaxKind)] box)
+  =>
+    """
+    ponyc's `check_annotation_location`: the annotations with placement
+    rules, each checked against the node the annotation sits on.
+    """
+    let tree = d.tree
+    (let parent, let parent_kind) =
+      try stack(stack.size() - 1)? else return end
+    if (name == "likely") or (name == "unlikely") then
+      let ok =
+        match parent_kind
+        | NdIf | NdWhile | NdCase => true
+        | NdRepeat =>
+          // Only the until clause takes it, not the loop body.
+          var seen_until = false
+          try
+            for child in tree.children(parent)? do
+              if tree.kind(child)? is TkUntil then
+                seen_until = true
+              elseif (child <= name_el) and
+                (name_el < (child + tree.subtree_size(child)?))
+              then
+                break
+              end
+            end
+          end
+          seen_until
+        else
+          false
+        end
+      if not ok then
+        d.report(name_el,
+          "a '" + name + "' annotation can only appear on the condition " +
+            "of an if, while, or until, or on the case of a match")
+      end
+    elseif name == "packed" then
+      if not _entity_keyword_is(tree, parent, parent_kind, TkStruct) then
+        d.report(name_el,
+          "a 'packed' annotation can only appear on a struct declaration")
+      end
+    elseif name == "nosupertype" then
+      if (not _entity_keyword_is(tree, parent, parent_kind, TkClass)) and
+        (not _entity_keyword_is(tree, parent, parent_kind, TkActor)) and
+        (not _entity_keyword_is(tree, parent, parent_kind, TkPrimitive))
+        and (not _entity_keyword_is(tree, parent, parent_kind, TkStruct))
+      then
+        d.report(name_el,
+          "a 'nosupertype' annotation can only appear on a concrete " +
+            "type declaration")
+      end
+    elseif name == "exhaustive" then
+      if not (parent_kind is NdMatch) then
+        d.report(name_el,
+          "an 'exhaustive' annotation can only appear on a match " +
+            "expression")
+      end
+    elseif name == "nodoc" then
+      let ok =
+        match parent_kind
+        | NdMethod => true
+        | NdClassDef =>
+          not _entity_keyword_is(tree, parent, parent_kind, TkType)
+        else
+          false
+        end
+      if not ok then
+        d.report(name_el, "'nodoc' annotation isn't valid here")
+      end
+    elseif name == "c_api" then
+      _c_api_annotation(d, name_el, parent, parent_kind)
+    end
+
+  fun _entity_keyword_is(
+    tree: SyntaxTree val,
+    parent: USize,
+    parent_kind: SyntaxKind,
+    keyword: TokenKind)
+    : Bool
+  =>
+    if not (parent_kind is NdClassDef) then
+      return false
+    end
+    try
+      for child in tree.children(parent)? do
+        match tree.kind(child)?
+        | TkActor | TkClass | TkStruct | TkPrimitive | TkTrait
+        | TkInterface | TkType =>
+          return tree.kind(child)? is keyword
+        end
+      end
+    end
+    false
+
+  fun _c_api_annotation(
+    d: _Diags,
+    name_el: USize,
+    parent: USize,
+    parent_kind: SyntaxKind)
+  =>
+    """
+    ponyc's `c_api` annotation rules: only concrete types and type
+    aliases export, an exported alias needs a single nominal target,
+    generics and private names cannot export.
+    """
+    let tree = d.tree
+    if not (parent_kind is NdClassDef) then
+      d.report(name_el, "'c_api' annotation isn't valid here")
+      return
+    end
+    if _entity_keyword_is(tree, parent, parent_kind, TkTrait) or
+      _entity_keyword_is(tree, parent, parent_kind, TkInterface)
+    then
+      d.report(name_el, "traits and interfaces cannot be exported")
+      return
+    end
+    try
+      var name_id: (USize | None) = None
+      var typeparams: (USize | None) = None
+      var provides: (USize | None) = None
+      for child in tree.children(parent)? do
+        match tree.kind(child)?
+        | TkId => if name_id is None then name_id = child end
+        | NdTypeParams => typeparams = child
+        | NdProvides => provides = child
+        end
+      end
+      if _entity_keyword_is(tree, parent, parent_kind, TkType) then
+        match provides
+        | None =>
+          d.report(name_el, "exported type alias must have a target type")
+          return
+        | let pr: USize =>
+          var target_ok = false
+          for child in tree.children(pr)? do
+            match tree.kind(child)?
+            | TkIs | NdError
+            | TkWhitespace | TkLineComment | TkNestedComment => None
+            | NdNominal => target_ok = true
+            else
+              target_ok = false
+            end
+          end
+          if not target_ok then
+            d.report(name_el,
+              "only type aliases for a single concrete type can be " +
+                "exported")
+            return
+          end
+        end
+      end
+      if typeparams isnt None then
+        d.report(name_el,
+          "generic types cannot be exported directly; export a concrete " +
+            "reification via a type alias")
+        return
+      end
+      match name_id
+      | let id: USize =>
+        let name = d.text(id)
+        if (try name(0)? == '_' else false end) and (name.size() > 1) then
+          d.report(name_el, "only public types can be exported")
+        end
+      end
+    end
+
   fun _ifdef_flags(
     d: _Diags,
     ifdef_el: USize)
   =>
     """
-    Run the flag rules over each condition of an `ifdef`.
+    Run the condition-shape rules over each condition of an `ifdef`.
     """
     let tree = d.tree
     try
@@ -292,73 +938,188 @@ primitive CheckLegality
       for child in tree.children(ifdef_el)? do
         match tree.kind(child)?
         | TkIfdef | TkElseif => in_condition = true
-        | TkThen => return
+        | TkWhitespace | TkLineComment | TkNestedComment => None
+        | NdElse =>
+          for part in tree.children(child)? do
+            match tree.kind(part)?
+            | TkElseif => in_condition = true
+            | TkThen => in_condition = false
+            | TkWhitespace | TkLineComment | TkNestedComment => None
+            else
+              if in_condition then
+                _cond_shape(d, part, "ifdef condition")
+                in_condition = false
+              end
+            end
+          end
+        | TkThen => in_condition = false
         else
-          if not in_condition then continue end
-          _condition_flags(d, child)
+          if in_condition then
+            _cond_shape(d, child, "ifdef condition")
+            in_condition = false
+          end
         end
       end
     end
 
-  fun _use_guard_flags(
+  fun _use_rules(
     d: _Diags,
     use_el: USize)
   =>
     """
-    The flag rules on a `use` guard: ponyc's syntax pass runs the ifdef
-    condition check on it, so an unknown or reserved flag is an error
-    whatever the scheme.
+    The `use` rules ponyc's syntax pass makes: an FFI `use` takes no
+    alias, an alias is a package name, and a guard is shaped like an
+    ifdef condition.
     """
     let tree = d.tree
     try
       var in_guard = false
+      var alias: (USize | None) = None
+      var ffi = false
       for child in tree.children(use_el)? do
         match tree.kind(child)?
+        | NdUseName => alias = child
+        | NdUseFFI => ffi = true
         | TkIf => in_guard = true
+        | TkWhitespace | TkLineComment | TkNestedComment => None
         else
           if in_guard then
-            _condition_flags(d, child)
+            _cond_shape(d, child, "use guard")
+            in_guard = false
+          end
+        end
+      end
+      match alias
+      | let a: USize =>
+        if ffi then
+          d.report(a, "Use FFI may not have an alias")
+        else
+          match _id_of(tree, a)
+          | let id: USize =>
+            _check_id(d, id, "package"
+              where start_lower = true, allow_underscore = true)
           end
         end
       end
     end
 
-  fun _condition_flags(
+  fun _cond_shape(
     d: _Diags,
-    child: USize)
+    element: USize,
+    context: String val)
+    : Bool
   =>
     """
-    The flag rules over one condition subtree: a string is a user build
-    flag, which must not be a platform name or a reserved flag; a bare
-    name is a platform flag, which must be in ponyc's table.
+    ponyc's `syntax_ifdef_cond`: a condition is built of and, or and
+    not over build flags, with parentheses around a single expression;
+    any other shape is invalid.
     """
     let tree = d.tree
     try
-      let size = try tree.subtree_size(child)? else 1 end
-      var i = child
-      while i < (child + size) do
-        match tree.kind(i)?
-        | TkString =>
-          let name = StringLiteralValue(d.text(i))
-          if _Platforms.known(name.lower()) or
-            _Platforms.illegal(name.lower())
-          then
-            d.report(i,
-              "\"" + name + "\" is not a valid user build flag\n")
+      match tree.kind(element)?
+      | NdBinOp =>
+        // A binary node built by anything but `and` or `or` is invalid
+        // whole, at its operator, which is where ponyc's node sits.
+        match _binop_token(tree, element)
+        | let t: USize =>
+          match tree.kind(t)?
+          | TkAnd | TkOr => None
+          else
+            d.report(t, "Invalid " + context)
+            return false
           end
-        | NdRef =>
-          for part in tree.children(i)? do
-            if tree.kind(part)? is TkId then
-              let name = d.text(part)
-              if not _Platforms.known(name) then
-                d.report(i,
-                  "\"" + name + "\" is not a valid platform flag\n")
-              end
+        end
+        for child in tree.children(element)? do
+          match tree.kind(child)?
+          | TkAnd | TkOr | TkQuestion
+          | TkWhitespace | TkLineComment | TkNestedComment => None
+          | TkString =>
+            if not _flag_string(d, child) then
+              return false
+            end
+          else
+            if tree.is_leaf(child)? then
+              d.report(child, "Invalid " + context)
+              return false
+            end
+            if not _cond_shape(d, child, context) then
+              return false
             end
           end
         end
-        i = i + 1
+      | NdUnaryOp =>
+        for child in tree.children(element)? do
+          match tree.kind(child)?
+          | TkNot
+          | TkWhitespace | TkLineComment | TkNestedComment => None
+          | TkString =>
+            if not _flag_string(d, child) then
+              return false
+            end
+          else
+            if tree.is_leaf(child)? then
+              d.report(child, "Invalid " + context)
+              return false
+            end
+            if not _cond_shape(d, child, context) then
+              return false
+            end
+          end
+        end
+      | NdRef =>
+        match _id_of(tree, element)
+        | let id: USize =>
+          let name = d.text(id)
+          if not _Platforms.known(name) then
+            d.report(element,
+              "\"" + name + "\" is not a valid platform flag\n")
+            return false
+          end
+        end
+      | TkString =>
+        return _flag_string(d, element)
+      | NdGrouped | NdSeq =>
+        var statements: USize = 0
+        var only: (USize | None) = None
+        for child in tree.children(element)? do
+          match tree.kind(child)?
+          | TkLparen | TkLparenNew | TkRparen | TkSemi
+          | TkWhitespace | TkLineComment | TkNestedComment => None
+          else
+            statements = statements + 1
+            only = child
+          end
+        end
+        if (tree.kind(element)? is NdSeq) and (statements != 1) then
+          d.report(element, "Sequence not allowed in " + context)
+          return false
+        end
+        match only
+        | let child: USize =>
+          if not _cond_shape(d, child, context) then
+            return false
+          end
+        end
+      else
+        d.report(element, "Invalid " + context)
+        return false
       end
+    end
+    true
+
+  fun _flag_string(d: _Diags, element: USize): Bool =>
+    """
+    A string in a condition is a user build flag, which must not be a
+    platform name or a reserved flag.
+    """
+    let name = StringLiteralValue(d.text(element))
+    if _Platforms.known(name.lower()) or _Platforms.illegal(name.lower())
+    then
+      d.report(element,
+        "\"" + name + "\" is not a valid user build flag\n")
+      false
+    else
+      true
     end
 
   fun _seq(
@@ -465,12 +1226,16 @@ primitive CheckLegality
     let tree = d.tree
     var keyword: (SyntaxKind | None) = None
     var value: (USize | None) = None
+    var is_return = false
     try
       for child in tree.children(jump)? do
         match tree.kind(child)?
         | TkCompileIntrinsic => keyword = TkCompileIntrinsic
         | TkCompileError => keyword = TkCompileError
-        | TkReturn | TkBreak => keyword = TkReturn
+        | TkReturn =>
+          keyword = TkReturn
+          is_return = true
+        | TkBreak => keyword = TkReturn
         | TkContinue | TkError => keyword = TkContinue
         | NdSeq => value = child
         end
@@ -506,6 +1271,9 @@ primitive CheckLegality
             end
           end
         end
+      end
+      if (not reported) and is_return then
+        reported = not _return_rules(d, jump, value, stack)
       end
       if not reported then
         _climb_unreachable(d, jump, seq, stack)
@@ -564,6 +1332,72 @@ primitive CheckLegality
           "a compile error must be the entire ifdef clause")
       end
     end
+
+  fun _return_rules(
+    d: _Diags,
+    jump: USize,
+    value: (USize | None),
+    stack: Array[(USize, SyntaxKind)] box)
+    : Bool
+  =>
+    """
+    ponyc's `return`-only clauses: a return sits in a method body, and
+    one in a constructor or behaviour carries no value unless a lambda
+    body intervenes. Returns whether the return is legal, because
+    ponyc stops at the first of these.
+    """
+    let tree = d.tree
+    var method: (USize | None) = None
+    var through_lambda = false
+    var outside_body = false
+    var i = stack.size()
+    while i > 0 do
+      i = i - 1
+      (let el, let kind) = try stack(i)? else return true end
+      match kind
+      | NdLambda | NdBareLambda => through_lambda = true
+      | NdParam | NdDefaultArg | NdField => outside_body = true
+      | NdMethod =>
+        method = el
+        break
+      end
+    end
+    if (method is None) or outside_body then
+      d.report(jump, "return must occur in a method body")
+      return false
+    end
+    var has_value = false
+    match value
+    | let v: USize =>
+      try
+        for part in tree.children(v)? do
+          match tree.kind(part)?
+          | TkWhitespace | TkLineComment | TkNestedComment
+          | TkSemi => None
+          else
+            has_value = true
+          end
+        end
+      end
+    end
+    if has_value and (not through_lambda) then
+      match method
+      | let m: USize =>
+        try
+          for child in tree.children(m)? do
+            match tree.kind(child)?
+            | TkBe | TkNew =>
+              d.report(jump,
+                "A return in a constructor or a behaviour can't return " +
+                  "a value")
+              return false
+            | TkFun => return true
+            end
+          end
+        end
+      end
+    end
+    true
 
   fun _climb_unreachable(
     d: _Diags,
@@ -710,11 +1544,10 @@ primitive CheckLegality
         d.report(element, "Main must be an actor")
       end
     end
-    if name == "_" then
-      match name_i
-      | let id: USize =>
-        d.report(id, desc + " name cannot be \"_\"")
-      end
+    match name_i
+    | let id: USize =>
+      _check_id(d, id, desc
+        where start_upper = true, allow_leading_underscore = true)
     end
     match defcap
     | let cap: USize if _EntityPerm.cap(ent) == 'N' =>
@@ -741,13 +1574,41 @@ primitive CheckLegality
       end
     else
       match provides
-      | let pr: USize => _provides(d, pr)
+      | let pr: USize =>
+        if _has_annotation(d, element, "nosupertype") then
+          d.report(_anchor(tree, pr),
+            "a 'nosupertype' type cannot specify a provides list")
+        else
+          _provides(d, pr)
+        end
       end
     end
     match members
     | let ms: USize =>
       _members(d, ent, ms)
     end
+
+  fun _has_annotation(
+    d: _Diags,
+    element: USize,
+    name: String val)
+    : Bool
+  =>
+    let tree = d.tree
+    try
+      for child in tree.children(element)? do
+        if tree.kind(child)? is NdAnnotations then
+          for part in tree.children(child)? do
+            if tree.kind(part)? is TkId then
+              if d.text(part) == name then
+                return true
+              end
+            end
+          end
+        end
+      end
+    end
+    false
 
   fun _members(
     d: _Diags,
@@ -763,7 +1624,12 @@ primitive CheckLegality
             d.report(member,
               "Can't have fields in " + _EntityDesc(ent))
           end
-          _id_is(d, member, "field")
+          match _id_of(tree, member)
+          | let id: USize =>
+            _check_id(d, id, "field"
+              where start_lower = true, allow_leading_underscore = true,
+                allow_underscore = true, allow_tick = true)
+          end
         | NdMethod =>
           _method(d, ent, member)
         end
@@ -783,6 +1649,8 @@ primitive CheckLegality
     var err: (USize | None) = None
     var body = false
     var body_el: (USize | None) = None
+    var docstring: (USize | None) = None
+    var ret_cap: (USize | None) = None
     var named = false
     // ponyc reports a forbidden return type at the type and a
     // forbidden body at the body, so both anchor at the node after
@@ -798,13 +1666,20 @@ primitive CheckLegality
         | TkBe => found = _Be
         | TkNew => found = _New
         | TkIso | TkTrn | TkRef | TkVal | TkBox | TkTag =>
-          if not named then cap = child end
+          if not named then
+            cap = child
+          elseif after_colon then
+            ret = child
+            ret_cap = child
+            after_colon = false
+          end
         | TkAt => if not named then bare = child end
         | TkId => named = true
         | TkColon =>
           ret = child
           after_colon = true
         | TkQuestion => err = child
+        | TkString => if not body then docstring = child end
         | TkDblarrow =>
           body = true
           after_arrow = true
@@ -848,7 +1723,22 @@ primitive CheckLegality
         end
       _element(d, perms, 4, body_at, method, "body", desc)
     end
-    _id_is(d, method, "method")
+    match _id_of(tree, method)
+    | let id: USize =>
+      _check_id(d, id, "method"
+        where start_lower = true, allow_leading_underscore = true,
+          allow_underscore = true)
+    end
+    match docstring
+    | let doc: USize if body =>
+      d.report(doc, "methods with bodies must put docstrings in the body")
+    end
+    match ret_cap
+    | let cap_el: USize if mkind is _Fun =>
+      d.report_with_info(cap_el,
+        "function return type: " + d.text(cap_el),
+        "function return type cannot be capability")
+    end
 
   fun _element(
     d: _Diags,
@@ -957,6 +1847,17 @@ primitive CheckLegality
         | NdTupleType => TkComma
         | NdViewpoint => TkArrow
         | NdDot => TkDot
+        | NdProvides =>
+          // ponyc's provides node sits at its first type, past `is`.
+          for child in tree.children(element)? do
+            match tree.kind(child)?
+            | TkIs | TkWhitespace | TkLineComment
+            | TkNestedComment => None
+            else
+              return child
+            end
+          end
+          return element
         | NdDefaultArg =>
           for child in tree.children(element)? do
             match tree.kind(child)?
@@ -1012,24 +1913,6 @@ primitive CheckLegality
               end
             end
           end
-        end
-      end
-    end
-
-  fun _id_is(
-    d: _Diags,
-    parent: USize,
-    what: String val)
-  =>
-    let tree = d.tree
-    try
-      for child in tree.children(parent)? do
-        if tree.kind(child)? is TkId then
-          if d.text(child) == "_" then
-            d.report(child,
-              what + " name cannot be \"_\"")
-          end
-          return
         end
       end
     end
@@ -1129,18 +2012,20 @@ primitive CheckLegality
 
   fun _annotations(
     d: _Diags,
-    anns: USize)
+    anns: USize,
+    stack: Array[(USize, SyntaxKind)] box)
   =>
     let tree = d.tree
     try
       for child in tree.children(anns)? do
         if tree.kind(child)? is TkId then
-          if d.text(child)
-            .compare_sub("ponyint", 7) is Equal
-          then
+          let name = d.text(child)
+          if name.compare_sub("ponyint", 7) is Equal then
             d.report(child,
               "annotations starting with 'ponyint' are reserved for " +
                 "internal use")
+          else
+            _annotation_location(d, child, name, stack)
           end
         end
       end

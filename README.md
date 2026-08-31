@@ -13,7 +13,7 @@
 | `pony_bind` | Which declaration a name refers to, across the files of a workspace, from syntax alone. Declarations are addressed by name path and hold no span, so an edit to a body leaves the workspace index unchanged. |
 | `pony_query` | The incremental computation engine: inputs, memoized queries, dependency tracking and backdating. It holds no results -- those live in the caller's own typed tables -- and depends on nothing but `builtin`. Cycle handling waits until subtyping needs it. |
 | `upstream/` | A working copy of pony-lsp and the `pony_compiler` bridge, vendored unmodified so changes can be made here and applied in one go. See `upstream/UPSTREAM.md`. |
-| `tools/checker` | The batch checker: slice 0 of `SEMANTIC_DESIGN.md`. A binary that loads a package and everything it `use`s, and rejects on parse diagnostics, over-deep nesting, and the ported subset of ponyc's syntax-pass legality rules, in ponyc's own wordings. |
+| `tools/checker` | The batch checker: slice 0 of `SEMANTIC_DESIGN.md`. A binary that loads a package and everything it `use`s, and rejects on parse diagnostics, over-deep nesting, and ponyc's syntax-pass legality rules, in ponyc's own wordings. |
 | `tools/agreement` | Whole-corpus checks against ponyc itself. |
 | `tools/bind_check` | Every entity ponyc's standard library declares, resolved from its own file back to itself, every `use` naming a package the workspace has, and every local, parameter, field and type parameter resolving to itself. |
 | `tools/memo_bench`, `tools/actor_latency` | The measurement `DESIGN.md` question 2 says to take before committing to a memo store. |
@@ -54,12 +54,12 @@ document has unsaved changes.
 The batch checker covers its first slice: the driver, the loader, a
 parser depth guard that turns over-deep nesting into a diagnostic
 instead of a crash — every grammar recursion cycle carries a guard,
-which `make test` re-derives from the source — and the ported subset
-of ponyc's syntax-pass legality rules. `tools/checker/probes`
+which `make test` re-derives from the source — and ponyc's syntax
+pass, ported in full (the package-docstring rule, which ponyc makes
+in its sugar pass, is the one piece beyond it). `tools/checker/probes`
 holds a fixture per rule family, pinning verdicts, messages, and one
-whole rendering, though not yet every variant of every ported rule.
-On the corpus's valid cases it rejects nothing ponyc accepts, and
-every remaining disagreement is a not-yet-implemented check tracked
-per case. The semantic layer --
+whole rendering. On the corpus's valid cases it rejects nothing ponyc
+accepts and catches every rejection ponyc makes at its parse or
+syntax pass; every remaining disagreement needs a later pass. The semantic layer --
 signatures, capabilities, subtyping -- is designed in
 `SEMANTIC_DESIGN.md` and not yet built.
