@@ -13,3 +13,4 @@ tools/agreement/ponyc_dump
 upstream/tools/pony-lsp/version.pony
 packages
 build/
+__pycache__/

@@ -185,14 +185,6 @@ def main():
           f"(a check not implemented)")
     print(f"{wrong} accepted by ponyc and rejected here (a rule got wrong)")
 
-    if wrong:
-        # A false rejection is the failure the floor framing exists to
-        # price; the gate fails on the first one.
-        for suite, test, expect, ours, cpass, message in disagreements:
-            if expect == "accept":
-                print(f"  wrong: {suite}/{test}")
-        return 2
-
     if "--list" in flags:
         print()
         print("disagreements:")
@@ -201,6 +193,14 @@ def main():
             note = f": {message}" if message else ""
             print(f"  {suite}.{test}: ponyc {expect}, checker {ours} "
                   f"(pass {cpass}){note}")
+
+    if wrong:
+        # A false rejection is the failure the floor framing exists to
+        # price; the gate fails on the first one.
+        for suite, test, expect, ours, cpass, message in disagreements:
+            if expect == "accept":
+                print(f"  wrong: {suite}/{test}")
+        return 2
 
     if failures:
         return 2

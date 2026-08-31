@@ -90,7 +90,15 @@ cli_want=1 cli_check --bogus-option
 cli_want=1 cli_check "$here/clean_minimal" extra_positional
 cli_want=1 cli_check --batch=/nonexistent-list "$here/clean_minimal"
 cli_want=1 cli_check --path=
+cli_want=1 cli_check --batch
 cli_want=1 cli_check
+printf '%s\n' "$here/clean_minimal" > "$tmp/one_case"
+code=0
+"$checker" --batch "$tmp/one_case" --path="$roots" >/dev/null 2>&1 || code=$?
+if [ "$code" != 0 ]; then
+  echo "PROBE FAIL: --batch space form expected exit 0 got $code"
+  fails=$((fails+1))
+fi
 
 # The batch driver must agree with the single runs, case by case.
 ( cd "$here" && printf '%s\n' $dirs ) > "$tmp/cases"

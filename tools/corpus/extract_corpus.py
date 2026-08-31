@@ -213,6 +213,8 @@ def main():
                 continue
 
             case = os.path.join(out_dir, suite, test)
+            if not _inside(out_dir, case):
+                continue
             # A stale fixture package from an earlier extraction would
             # keep resolving after the test stops producing it.
             shutil.rmtree(case, ignore_errors=True)

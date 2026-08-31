@@ -461,8 +461,8 @@ among them.
 unmodified (`<dir>\t(ok|fail|load-failed)`, exit 0 for the batch; single
 mode exits 0 clean / 255 with ponyc-shaped errors off `LineIndex(Utf8)`;
 a usage error or internal failure exits 1, distinct from both
-verdicts — a crash never manufactures one); the loader; the parser depth guard (divergence
-4); and ponyc's `syntax`-pass legality rules — body-free shape checks
+verdicts — a crash never manufactures one); the loader; the parser
+depth guard (divergence 4); and ponyc's `syntax`-pass legality rules — body-free shape checks
 over the existing lossless tree. Measured: 130 rejections error at
 `parse` or `syntax`, **+9.5 points**. Whether the deliberately tolerant
 parser converts its facts into all 130 verdicts is the open caveat this

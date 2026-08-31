@@ -199,7 +199,7 @@ actor Main
   fun ref _run_single(loader: Loader ref, dir: String val) =>
     match loader.load(dir)
     | let e: LoadError =>
-      _env.err.print("Error:\n" + e.string())
+      _Stderr.print("Error:\n" + e.string())
       _env.exitcode(255)
     | let program: Program =>
       var any = false

@@ -1,0 +1,8 @@
+Error:
+$DIR/main.pony:2:9: expected a parameter name, found TkColon
+  fun f(: U8 => None
+        ^
+Error:
+$DIR/main.pony:2:14: expected a closing parenthesis, found TkDblarrow
+  fun f(: U8 => None
+             ^

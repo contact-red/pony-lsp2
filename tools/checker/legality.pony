@@ -328,7 +328,7 @@ primitive CheckLegality
             _Platforms.illegal(name.lower())
           then
             _diag(file, i, at, width, out,
-              "\"" + name + "\" is not a valid user build flag")
+              "\"" + name + "\" is not a valid user build flag\n")
           end
         | NdRef =>
           for part in tree.children(i)? do
@@ -336,7 +336,7 @@ primitive CheckLegality
               let name = _Text(source, at, width, part)
               if not _Platforms.known(name) then
                 _diag(file, i, at, width, out,
-                  "\"" + name + "\" is not a valid platform flag")
+                  "\"" + name + "\" is not a valid platform flag\n")
               end
             end
           end
