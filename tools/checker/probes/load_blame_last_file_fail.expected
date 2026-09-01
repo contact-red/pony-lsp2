@@ -1,0 +1,6 @@
+Error:
+no Pony source files in package './empty1'
+Error:
+$DIR/other.pony:1:1: can't load package './empty1'
+use "./empty1"
+^

@@ -62,17 +62,14 @@ primitive CheckLegality
   condition shapes, annotation placement, constraints, consume shapes,
   returns, and casts.
   """
-  fun apply(file: String val, tree: SyntaxTree val)
+  fun apply(
+    file: String val,
+    tree: SyntaxTree val,
+    at: Array[USize] val)
     : Array[CheckDiagnostic] val
   =>
     recover val
       let out = Array[CheckDiagnostic]
-      // Offsets by element index, so structure walks below can locate
-      // any element without recomputing one.
-      let at = Array[USize](tree.size())
-      for (_, _, a, _, _) in tree.walk() do
-        at.push(a)
-      end
       let d = _Diags(file, tree, at, out)
 
       // Where constraints sit, as element ranges, so a rule about what
@@ -939,19 +936,7 @@ primitive CheckLegality
         match tree.kind(child)?
         | TkIfdef | TkElseif => in_condition = true
         | TkWhitespace | TkLineComment | TkNestedComment => None
-        | NdElse =>
-          for part in tree.children(child)? do
-            match tree.kind(part)?
-            | TkElseif => in_condition = true
-            | TkThen => in_condition = false
-            | TkWhitespace | TkLineComment | TkNestedComment => None
-            else
-              if in_condition then
-                _cond_shape(d, part, "ifdef condition")
-                in_condition = false
-              end
-            end
-          end
+        | NdAnnotations => None
         | TkThen => in_condition = false
         else
           if in_condition then

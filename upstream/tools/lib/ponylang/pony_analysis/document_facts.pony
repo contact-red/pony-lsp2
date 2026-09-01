@@ -58,6 +58,21 @@ class val DocumentFacts
         out
       end
 
+  fun offsets(): Array[USize] val =>
+    """
+    The byte offset of every element, as `span_of` reads them. A
+    consumer that walks the tree itself reads offsets here, computed
+    once, instead of recomputing one per element.
+    """
+    _offsets
+
+  fun tree(): SyntaxTree val =>
+    """
+    The parse these facts are projected from. A consumer that walks
+    the tree itself takes it from here, so a file is parsed once.
+    """
+    _tree
+
   fun identifier_at(line: USize, character: USize): (Identifier | None) =>
     """
     The identifier written at a position, if one is.

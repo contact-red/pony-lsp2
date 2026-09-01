@@ -551,7 +551,7 @@ class _Emitter
       let whole = _offsets(element)?
       _out.push(
         Binding(
-          recover val _tree.text(named)? end,
+          _tree.source.substring(at.isize(), (at + width).isize()),
           kind,
           Span.from_bytes(_index, whole, whole + _tree.width(element)?),
           Span.from_bytes(_index, at, at + width),

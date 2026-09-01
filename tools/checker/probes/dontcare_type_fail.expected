@@ -1,0 +1,4 @@
+Error:
+$DIR/main.pony:3:12: can't use '_' as a type name
+    let x: _ = None
+           ^

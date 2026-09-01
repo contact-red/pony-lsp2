@@ -125,7 +125,7 @@ memo-pays:
 	ponyc -b memo-pays -o build tools/memo_pays
 	./build/memo-pays
 
-# The slice-0 checker: build it, run the corpus through it, and score the
+# The batch checker: build it, run the corpus through it, and score the
 # verdicts per case. See tools/checker and SEMANTIC_DESIGN.md.
 checker:
 	ponyc -b checker -o build tools/checker

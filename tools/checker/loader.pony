@@ -1,5 +1,6 @@
 use "collections"
 use "files"
+use "../../upstream/tools/lib/ponylang/pony_analysis"
 use "../../upstream/tools/lib/ponylang/pony_syntax"
 
 class val UnloadableRoot
@@ -69,19 +70,27 @@ class val UnlocatedDiagnostic
 
 class val FileData
   """
-  One loaded file: its text, its parse, and every per-file projection the
-  checker reads, computed once and cached across a batch.
+  One loaded file: its parse and every per-file projection the checker
+  reads, computed once and cached across a batch. The parse arrives
+  through `DocumentFacts`, the projection the language server also
+  reads.
   """
   let path: String val
+  let facts: DocumentFacts
   let tree: SyntaxTree val
   let uses: Array[ScannedUse] val
   let legality: Array[CheckDiagnostic] val
 
   new val create(path': String val, source: String val) =>
     path = path'
-    tree = Parse(source)
+    // DocumentFacts rather than a bare parse: name resolution needs
+    // its scope-aware bindings, which are not separable from the
+    // projections the checker never reads — those are computed and
+    // retained as the price.
+    facts = DocumentFacts(source, Utf8)
+    tree = facts.tree()
     uses = ScanUses(tree)
-    legality = CheckLegality(path', tree)
+    legality = CheckLegality(path', tree, facts.offsets())
 
 class val PackageData
   """
@@ -151,22 +160,30 @@ primitive _PackageLegality
 
 class val Program
   """
-  A loaded program: the packages reached from the root, in load order,
-  and what loading itself reported — located diagnostics at `use` sites,
-  and unlocated failures for paths and packages no span describes.
+  A loaded program: the packages reached from the root, in load order;
+  what loading itself reported — located diagnostics at `use` sites,
+  and unlocated failures for paths and packages no span describes —
+  and the name diagnostics computed once the load completed.
   """
   let packages: Array[PackageData] val
-  let load_diags: Array[CheckDiagnostic] val
-  let load_failures: Array[UnlocatedDiagnostic] val
+  let _load_diags: Array[CheckDiagnostic] val
+  let _load_failures: Array[UnlocatedDiagnostic] val
+  let _name_diags: Array[CheckDiagnostic] val
+    """
+    Unresolved-name diagnostics, reported only through `diagnostics`,
+    which stages them after everything earlier.
+    """
 
   new val create(
     packages': Array[PackageData] val,
     load_diags': Array[CheckDiagnostic] val,
-    load_failures': Array[UnlocatedDiagnostic] val)
+    load_failures': Array[UnlocatedDiagnostic] val,
+    name_diags': Array[CheckDiagnostic] val)
   =>
     packages = packages'
-    load_diags = load_diags'
-    load_failures = load_failures'
+    _load_diags = load_diags'
+    _load_failures = load_failures'
+    _name_diags = name_diags'
 
   fun parse_failed(): Bool =>
     """
@@ -186,12 +203,34 @@ class val Program
   fun diagnostics(): Array[(FileData, Array[CheckDiagnostic])] =>
     """
     Every located diagnostic, grouped and sorted: packages in load
-    order, files in package order, byte order within a file. When any
-    file failed to parse, only the parse diagnostics are included —
-    ponyc's rule. The unlocated failures in `load_failures` are not
-    here; they render first.
+    order, files in package order, byte order within a file, staged
+    the way ponyc's passes are — the first pass that errors is the
+    last that runs. When any file failed to parse, only the parse
+    diagnostics are included; the unresolved-name diagnostics are
+    included only when no parse, legality, package or load diagnostic
+    exists anywhere in the program. That last rule is load-bearing
+    beyond parity: a dependency that resolves but fails to load has
+    no entity table, so its importers' name lookups would not find
+    the names that package declares — the `can't load package`
+    diagnostic that failure raises is what suppresses them. The
+    unlocated failures are not here; `failures()` stages them, and
+    they render first.
     """
     let suppress = parse_failed()
+    var earlier = _load_diags.size() > 0
+    if not earlier then
+      for package in packages.values() do
+        if package.legality.size() > 0 then
+          earlier = true
+        end
+        for f in package.files.values() do
+          if f.legality.size() > 0 then
+            earlier = true
+          end
+        end
+      end
+    end
+    let with_names = (not suppress) and (not earlier)
     let out = Array[(FileData, Array[CheckDiagnostic])]
     for package in packages.values() do
       for f in package.files.values() do
@@ -208,7 +247,14 @@ class val Program
               diags.push(d)
             end
           end
-          for d in load_diags.values() do
+          for d in _load_diags.values() do
+            if d.file == f.path then
+              diags.push(d)
+            end
+          end
+        end
+        if with_names then
+          for d in _name_diags.values() do
             if d.file == f.path then
               diags.push(d)
             end
@@ -220,9 +266,23 @@ class val Program
     end
     out
 
+  fun failures(): Array[UnlocatedDiagnostic] val =>
+    """
+    The unlocated load failures, staged the same way `diagnostics`
+    is: after a parse failure only the parse diagnostics report, so
+    none of these.
+    """
+    if parse_failed() then
+      recover val Array[UnlocatedDiagnostic] end
+    else
+      _load_failures
+    end
+
 class Loader
   """
-  The one component that reads disk or resolves a `use`.
+  The one component that reads disk or resolves a `use`, and the
+  driver of the whole-program checks: once a load completes, it
+  computes each package's name diagnostics over its caches.
 
   Resolution matches ponyc's `find_path` less the upward `pony_packages`
   walk: an absolute path as given; relative to the using package's
@@ -235,20 +295,36 @@ class Loader
   are honoured — ponyc parity: a checked workspace's dependencies are
   trusted to the degree compiling it would trust them.
 
-  Loaded packages are cached by canonical directory for the life of the
-  `Loader`, and the cache never invalidates: a `load` after a file
-  changes on disk returns the package as first read. One `Loader` serves
-  one batch over static input; a consumer tracking edits makes a fresh
-  one.
+  Loaded packages, their per-file imports, their entity tables and
+  their name diagnostics are each cached by canonical directory for
+  the life of the `Loader`, and none of the caches invalidates: a
+  `load` after a file changes on disk returns the package as first
+  read. One `Loader` serves one batch over static input; a consumer
+  tracking edits makes a fresh one.
   """
   let _auth: FileAuth
   let _roots: Array[String val] val
   let _store: Map[String, PackageData val]
+  let _imports: Map[String, Map[String, _PackageImports] val]
+    """Per-file resolved imports, cached by package directory."""
+  let _entities: Map[String, Map[String, _EntityInfo] val]
+    """Entity tables, cached by package directory."""
+  let _names: Map[String, Array[CheckDiagnostic] val]
+    """Name diagnostics, cached by package directory."""
+  let _verbose: Bool
 
-  new create(auth: FileAuth, roots: Array[String val] val) =>
+  new create(
+    auth: FileAuth,
+    roots: Array[String val] val,
+    verbose: Bool = false)
+  =>
     _auth = auth
     _roots = roots
     _store = _store.create()
+    _imports = _imports.create()
+    _entities = _entities.create()
+    _names = _names.create()
+    _verbose = verbose
 
   fun ref load(target: String val): (Program | LoadError) =>
     """
@@ -268,6 +344,7 @@ class Loader
       end
 
     let packages = recover iso Array[PackageData val] end
+    let package_dirs = Array[String val]
     let diags = recover iso Array[CheckDiagnostic] end
     let failures = recover iso Array[UnlocatedDiagnostic] end
     let seen = Set[String]
@@ -307,8 +384,27 @@ class Loader
           continue
         end
       packages.push(package)
+      package_dirs.push(dir)
 
-      for file in package.files.values() do
+      let file_imports =
+        if _imports.contains(dir) then
+          // This package's imports were recorded by an earlier load;
+          // the use walk below still runs for its diagnostics and to
+          // reach its dependencies.
+          None
+        else
+          Map[String, _PackageImports]
+        end
+      // ponyc prepends each parsed module, so its whole-package
+      // passes see files in descending byte order; walking the uses
+      // that way lands a once-per-package diagnostic on the file
+      // ponyc blames.
+      var file_i = package.files.size()
+      while file_i > 0 do
+        file_i = file_i - 1
+        let file = try package.files(file_i)? else _Unreachable(); break end
+        let aliases = Map[String, String val]
+        let opens = Array[String val]
         for u in file.uses.values() do
           // ponyc's `uri_command` order: an unknown scheme, then an
           // alias or guard the scheme's row forbids, each stops the
@@ -338,6 +434,15 @@ class Loader
           | UsePackage =>
             match _resolve(u.locator, dir)
             | let found: String val =>
+              if file_imports isnt None then
+                if u.aliased and (u.alias_name.size() > 0) then
+                  aliases(u.alias_name) = found
+                elseif not u.aliased then
+                  opens.push(found)
+                else
+                  _Unreachable()
+                end
+              end
               if not seen.contains(found) then
                 seen.set(found)
                 queue.push(
@@ -354,10 +459,121 @@ class Loader
           | UseDirective => None
           end
         end
+        match file_imports
+        | let fi: Map[String, _PackageImports] =>
+          opens.push(builtin)
+          fi(file.path) =
+            _PackageImports(
+              _freeze_aliases(aliases), _freeze_dirs(opens))
+        end
+      end
+      match file_imports
+      | let fi: Map[String, _PackageImports] =>
+        _imports(dir) = _freeze_imports(fi)
       end
     end
 
-    Program(consume packages, consume diags, consume failures)
+    // Name resolution runs once the whole program is loaded, so every
+    // package that loaded has its entity table; the answers are
+    // cached with the package, whose content cannot change within a
+    // run.
+    let names = recover iso Array[CheckDiagnostic] end
+    for pkg_dir in package_dirs.values() do
+      for d in _package_names(pkg_dir).values() do
+        names.push(d)
+      end
+    end
+
+    Program(
+      consume packages, consume diags, consume failures, consume names)
+
+  fun ref _package_names(dir: String val)
+    : Array[CheckDiagnostic] val
+  =>
+    """
+    The unresolved-name diagnostics for one loaded package, computed
+    once per loader: the package's entity table and those of its
+    imports feed `CheckNames` over each file.
+    """
+    try
+      return _names(dir)?
+    end
+    let empty: Array[CheckDiagnostic] val =
+      recover val Array[CheckDiagnostic] end
+    let package =
+      try
+        _store(dir)?
+      else
+        _Unreachable()
+        return empty
+      end
+    let imports =
+      try
+        _imports(dir)?
+      else
+        _Unreachable()
+        return empty
+      end
+    _ensure_entities(dir)
+    for fi in imports.values() do
+      for open_dir in fi.opens.values() do
+        _ensure_entities(open_dir)
+      end
+      for alias_dir in fi.aliases.values() do
+        _ensure_entities(alias_dir)
+      end
+    end
+    let out = recover iso Array[CheckDiagnostic] end
+    for file in package.files.values() do
+      let fi =
+        try
+          imports(file.path)?
+        else
+          _Unreachable()
+          continue
+        end
+      for d in CheckNames(file, dir, fi, _entities).values() do
+        out.push(d)
+      end
+    end
+    let frozen: Array[CheckDiagnostic] val = consume out
+    _names(dir) = frozen
+    frozen
+
+  fun ref _ensure_entities(dir: String val) =>
+    if not _entities.contains(dir) then
+      // A resolved dir whose package failed to load is absent from
+      // the store; its `can't load package` diagnostic suppresses
+      // name reporting, so no table is needed.
+      try
+        _entities(dir) = _ProjectEntities(_store(dir)?.files)
+      end
+    end
+
+  fun _freeze_dirs(dirs: Array[String val] box): Array[String val] val =>
+    let out = recover iso Array[String val](dirs.size()) end
+    for d in dirs.values() do
+      out.push(d)
+    end
+    consume out
+
+  fun _freeze_aliases(aliases: Map[String, String val] box)
+    : Map[String, String val] val
+  =>
+    let out = recover iso Map[String, String val] end
+    for (k, v) in aliases.pairs() do
+      out(k) = v
+    end
+    consume out
+
+  fun _freeze_imports(imports: Map[String, _PackageImports] box)
+    : Map[String, _PackageImports] val
+  =>
+    let out = recover iso Map[String, _PackageImports] end
+    for (k, v) in imports.pairs() do
+      out(k) = v
+    end
+    consume out
 
   fun ref _load_package(dir: String val, locator: String val)
     : (PackageData val | LoadError)
@@ -411,6 +627,10 @@ class Loader
 
     let files = recover iso Array[FileData val] end
     for path in names.values() do
+      if _verbose then
+        // ponyc's wording.
+        _Stderr.print("Opening " + path)
+      end
       let source =
         try
           let f = OpenFile(FilePath(_auth, path)) as File

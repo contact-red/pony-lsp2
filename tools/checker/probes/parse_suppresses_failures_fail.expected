@@ -1,0 +1,4 @@
+Error:
+$DIR/main.pony:6:1: expected a closing parenthesis, found TkEof
+
+^

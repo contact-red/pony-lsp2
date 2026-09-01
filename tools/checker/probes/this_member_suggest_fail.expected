@@ -1,0 +1,4 @@
+Error:
+$DIR/main.pony:4:9: can't find declaration of 'helper', did you mean '_helper'?
+    this.helper()
+        ^
