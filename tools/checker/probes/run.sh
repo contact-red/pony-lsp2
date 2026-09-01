@@ -80,6 +80,72 @@ cli_want=1 cli_check --batch=/nonexistent-list "$here/clean_minimal"
 cli_want=1 cli_check --path=
 cli_want=1 cli_check --batch
 cli_want=1 cli_check
+cli_want=1 cli_check --path "" "$here/clean_minimal"
+cli_want=1 cli_check --path --verbose "$here/clean_minimal"
+cli_want=1 cli_check --path -h "$here/clean_minimal"
+cli_want=1 cli_check --batch=
+code=0
+"$checker" --batch -h >/dev/null 2>"$tmp/err" || code=$?
+if [ "$code" != 1 ] || ! grep -q -- "--batch needs a value" "$tmp/err"
+then
+  echo "PROBE FAIL: '--batch -h' expected exit 1 with its usage message"
+  fails=$((fails+1))
+fi
+code=0
+"$checker" "$here/clean_minimal" --path="$roots" --verbose \
+  >/dev/null 2>"$tmp/err" || code=$?
+if [ "$code" != 0 ] || ! grep -q "^Opening " "$tmp/err"; then
+  echo "PROBE FAIL: --verbose expected exit 0 with Opening lines"
+  fails=$((fails+1))
+fi
+# A batch case list naming one fixture twice: --verbose reports each
+# file once, because the second load is served from the cache, and
+# batch mode without --errors writes nothing to stderr at all.
+printf '%s\n%s\n' "$here/clean_minimal" "$here/clean_minimal" \
+  > "$tmp/twice"
+code=0
+"$checker" --batch="$tmp/twice" --path="$roots" --verbose \
+  >/dev/null 2>"$tmp/err" || code=$?
+opened=$(grep -c "^Opening " "$tmp/err" || true)
+sources=$(find "$here/clean_minimal" "$roots/builtin" -name '*.pony' \
+  | grep -c "")
+if [ "$code" != 0 ] || [ "$opened" != "$sources" ]; then
+  echo "PROBE FAIL: batch --verbose expected $sources Opening lines," \
+    "one per file, got $opened"
+  fails=$((fails+1))
+fi
+code=0
+"$checker" --batch="$tmp/twice" --path="$roots" \
+  >/dev/null 2>"$tmp/err" || code=$?
+if [ "$code" != 0 ] || [ -s "$tmp/err" ]; then
+  echo "PROBE FAIL: batch mode without --errors expected silent stderr"
+  fails=$((fails+1))
+fi
+printf '%s\n' "$here/struct_behaviour_fail" > "$tmp/one_fail"
+code=0
+"$checker" --batch="$tmp/one_fail" --path="$roots" --errors \
+  >"$tmp/bout" 2>"$tmp/err" || code=$?
+if [ "$code" != 0 ] || \
+  ! grep -q "struct behaviours are not allowed" "$tmp/err" || \
+  ! grep -q "	fail$" "$tmp/bout"
+then
+  echo "PROBE FAIL: --errors expected the diagnostic on stderr and the"
+  echo "  verdict on stdout"
+  fails=$((fails+1))
+fi
+printf '%s\n%s\n' "$here/name_unresolved_fail" "$here/load_failed_root" \
+  > "$tmp/err_cases"
+code=0
+"$checker" --batch="$tmp/err_cases" --path="$roots" --errors \
+  >"$tmp/bout" 2>"$tmp/err" || code=$?
+if [ "$code" != 0 ] || \
+  ! grep -q "can't find declaration of 'nv'" "$tmp/err" || \
+  ! grep -q "no Pony source files" "$tmp/err"
+then
+  echo "PROBE FAIL: --errors expected the name and load-failed"
+  echo "  diagnostics on stderr"
+  fails=$((fails+1))
+fi
 printf '%s\n' "$here/clean_minimal" > "$tmp/one_case"
 code=0
 "$checker" --batch "$tmp/one_case" --path="$roots" >/dev/null 2>&1 || code=$?
@@ -102,6 +168,25 @@ while IFS="	" read -r name want _; do
     fails=$((fails+1))
   fi
 done < "$here/expected.tsv"
+
+# And its --errors rendering must be the single runs' renderings,
+# concatenated in case order — across the 32-case and 256-item chunk
+# boundaries.
+( cd "$here" && "$checker" --batch="$tmp/cases" --path="$roots" \
+  --errors ) >/dev/null 2>"$tmp/batch_err" || {
+    echo "PROBE FAIL: batch --errors run did not exit 0"
+    fails=$((fails+1))
+  }
+: > "$tmp/single_err"
+while IFS="	" read -r name _ _; do
+  ( cd "$here" && "$checker" "$name" --path="$roots" ) \
+    >/dev/null 2>> "$tmp/single_err" || true
+done < "$here/expected.tsv"
+if ! diff -q "$tmp/batch_err" "$tmp/single_err" >/dev/null; then
+  echo "PROBE FAIL: batch --errors rendering differs from the single runs"
+  diff "$tmp/batch_err" "$tmp/single_err" | head -10
+  fails=$((fails+1))
+fi
 
 if [ "$fails" -eq 0 ]; then
   echo "probes: all pass"

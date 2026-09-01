@@ -1,0 +1,4 @@
+Error:
+$DIR/main.pony:2:3: class behaviours are not allowed
+  be b() => nosuchname
+  ^

@@ -1,0 +1,4 @@
+Error:
+$DIR/main.pony:5:13: can't find declaration of '_FOOBAR'
+    let x = _FOOBAR
+            ^

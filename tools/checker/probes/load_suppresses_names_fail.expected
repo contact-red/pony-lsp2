@@ -1,0 +1,6 @@
+Error:
+./missing: couldn't locate this path
+Error:
+$DIR/main.pony:1:1: can't load package './missing'
+use "./missing"
+^

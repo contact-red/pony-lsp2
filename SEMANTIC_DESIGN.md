@@ -13,8 +13,10 @@ policy decisions the loop surfaced — loader confinement and
 guard-versus-shortcut divergence — are decided by Red and recorded where
 they arise.
 
-Nothing here is implemented. Claims marked *unverified* are exactly that;
-a complete list is at the end. Measurements cited by name live in
+Slices 0 and 1 are built, in `tools/checker`; the slice entries under
+"The first slice" record what was built and where it diverged from
+this sketch. Claims marked *unverified* are exactly that; a complete
+list is at the end. Measurements cited by name live in
 `tools/memo_pays`, `tools/type_hash`, and `tools/corpus`.
 
 ## Divergences from what exists
@@ -58,13 +60,17 @@ a complete list is at the end. Measurements cited by name live in
    manifest so a mid-batch crash cannot yield a silent prefix rate.
 6. **The first shipped binary is the driver, not the signature layer.**
 7. **`DocumentFacts` is split into per-fact queries** — as its own
-   reviewed change, off the checker's critical path. The batch argument:
-   parse alone measured 297 ms against 447 ms for all six projections
-   over the standard library (timed during the first evaluation round),
-   so the checker pays 34% for projections it never reads. The
-   constructor is public with consumers in `pony_bind`, both trust
-   harnesses, `pony-lsp`, and 13 test sites — which is why it ships
-   separately.
+   reviewed change, off the checker's critical path. The batch argument
+   as first stated — parse 297 ms against 447 ms for all six
+   projections, "34% for projections it never reads" — went stale once
+   the checker began reading `bindings`. Re-measured during the slice-1
+   review by differential builds (checker binaries with projections
+   removed, timed over the two batches): dropping the projections the
+   checker never reads saves roughly seven to eleven percent of a batch
+   run. Whether that still buys the split is undecided. The constructor
+   is public with consumers in `pony_bind`, both trust harnesses,
+   `pony-lsp`, this checker, and the test suites — which is why it
+   ships separately.
 
 ## Package loading
 
@@ -96,23 +102,24 @@ zero relative `use`s and nothing needing it.
 
 The loader walks the `use` graph a level at a time, reading each file's
 imports back from the binder — the binder parses; the loader never does.
-(Slice 0 as built takes an interim shortcut: the binder is not wired in
-until name resolution arrives, so the loader owns the parse and scans
-uses from the tree itself, recording each `use`'s guard and alias for
-the legality checks. The binder takes the parse back in slice 1. The
-loader's package cache also lives for the whole batch, cases included —
-the per-case eviction the memo architecture requires arrives with the
-engine, and until then a batch's footprint is linear in its case
-count.)
+(As built, the loader owns the parse and scans uses from the tree
+itself, recording each `use`'s guard and alias for the legality checks.
+The checker still owns the parse; its name resolution reads the
+`pony_analysis` projections rather than the binder, and the "Slice 1"
+entry below records why. The loader's caches also live for the whole
+batch, cases included — the per-case eviction the memo architecture
+requires arrives with the engine, and until then a batch's footprint is
+linear in its case count.)
 
 **A package's identity is its canonical (realpath) directory path**,
 carried as `PackageId`, whose constructor is private to the loader: a
 `use` string can never become a package identity except through
-resolution. (Slice 0 as built carries the identity as a bare canonical
-path — every site canonicalises before use, and nothing yet crosses a
-boundary where a raw locator could stand in. `PackageId` is owed when
-the loader and binder meet in slice 1 and the identity starts moving
-between components.) Two locators reaching one directory are one
+resolution. (As built, slices 0 and 1 carry the identity as a bare
+canonical path — every site canonicalises before use, and nothing yet
+crosses a boundary where a raw locator could stand in. `PackageId` is
+owed when the identity starts moving between components — at the
+latest when the checker and the binder meet on one dependency
+graph.) Two locators reaching one directory are one
 package. Workers never resolve — every consumer reads the same
 resolved mapping from the same inputs, so agreement on type identity
 is by shared immutable input, not by protocol.
@@ -476,12 +483,26 @@ at `parse` or `syntax`, **+9.4 points**, and the checker catches all
 130 — the tolerant parser converts its facts into every verdict,
 which was the open caveat this slice carried.
 
-**Slice 1 — name errors.** `pony_bind` wired to the loader: unresolved
-names and unresolved `use`s as diagnostics (the `fail` side of the
-verdict split — nothing here scores as `load-failed`, so no case is
-double-booked). Measured: 41 rejections error in
-`sugar`/`scope`/`import`/`name`, **+3.0 points** (*unverified* how many
-are body-free).
+**Slice 1 — name errors.** Built, with one divergence from the design
+above. Resolution lives in the checker, over the shared
+`pony_analysis` projections: the checker constructs `DocumentFacts`
+instead of calling the parser directly, so its scope-aware bindings
+come from the same projection the language server reads. It does not
+go through the `Binder` — the binder's workspace-global locator map
+cannot carry the loader's per-package relative `use` resolution, and
+its memoization has nothing to pay for in a batch that queries once.
+Unresolved references, members and types are diagnostics in ponyc's
+wordings, fail-open: a name the resolver cannot prove unresolvable is
+accepted, and lambda bodies fail open wholesale — a lambda's members
+are not in any table, so no name failure under one is reported.
+Measured ceiling: 41 rejections error in `sugar`/`scope`/`import`/
+`name`, **+3.0 points**. Built, the corpus rises from 732 to 752 of
+1,384. Seventeen of the twenty gained cases need whole-program
+resolution — twelve are pass-limited accepts whose full-program
+rejection is an unresolved name, three error earliest at `sugar` and
+two at `refer` — and three error earliest at ponyc's `name` pass.
+Zero false rejections over the corpus, the standard library, and this
+repository's own packages.
 
 **Slice 2 — signatures.** The IR, lowering with canonicalisation, the
 capability algebra (pure table ports), `method_table` with synthesis,
@@ -636,7 +657,7 @@ not agreement, and one body cannot drift from itself.
    its conditions" until then.
 4. The composed construction-path cost (dedup probe with custom hash on
    the real map shape) — one benchmark variant, mostly existing code.
-5. How many of the 42 name-level rejections are body-free.
+5. How many of the corpus's name-level rejections are body-free.
 6. The work budget's value, set from measurement at the slice-2 gate.
    (The guard-divergence corpus frequency is measured: zero cases in the
    class; two guard-decided rejections, both handled identically by the
