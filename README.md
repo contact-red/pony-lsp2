@@ -15,6 +15,7 @@
 | `upstream/` | A working copy of pony-lsp and the `pony_compiler` bridge, vendored unmodified so changes can be made here and applied in one go. See `upstream/UPSTREAM.md`. |
 | `tools/checker` | The batch checker. A binary that loads a package and everything it `use`s, and rejects on parse diagnostics, over-deep nesting, `use`-level legality and resolution errors, ponyc's syntax-pass legality rules, its scope-pass reuse rules, its import-pass clash rules, invalid provides types, and unresolved names, in ponyc's own wordings. |
 | `tools/agreement` | Whole-corpus checks against ponyc itself. |
+| `KNOWLEDGE.md` | The index of what is recorded here about ponyc's behaviour and where — for looking facts up from outside this repository. |
 | `tools/bind_check` | Every entity ponyc's standard library declares, resolved from its own file back to itself, every `use` naming a package the workspace has, and every local, parameter, field and type parameter resolving to itself. |
 | `tools/memo_bench`, `tools/actor_latency` | The measurement `DESIGN.md` question 2 says to take before committing to a memo store. |
 | `tools/memo_pays`, `tools/type_hash` | The measurements behind `SEMANTIC_DESIGN.md`: whether memoizing a subtype decision pays, and what type identity costs. |
