@@ -1,0 +1,8 @@
+Error:
+$DIR/main.pony:9:13: can't reuse name 'B'
+      fun g[B](x: U8): U8 => x
+            ^
+    Info:
+    $DIR/main.pony:4:1: previous use of 'B'
+    trait B
+    ^

@@ -1,0 +1,8 @@
+Error:
+$DIR/main.pony:6:7: can't reuse name 'foo'
+  fun foo(): U8 => 2
+      ^
+    Info:
+    $DIR/main.pony:5:3: previous use of 'foo'
+      let foo: U8 = 1
+      ^

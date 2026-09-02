@@ -1,0 +1,8 @@
+Error:
+$DIR/main.pony:3:1: invalid provides type. Can only be interfaces, traits and intersects of those.
+class User is (T1 & Bad)
+^
+    Info:
+    $DIR/main.pony:3:21: invalid type here
+    class User is (T1 & Bad)
+                        ^

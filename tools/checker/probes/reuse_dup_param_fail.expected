@@ -1,0 +1,8 @@
+Error:
+$DIR/main.pony:3:17: can't reuse name 'a'
+  fun go(a: U8, a: U8): U8 => a
+                ^
+    Info:
+    $DIR/main.pony:3:10: previous use of 'a'
+      fun go(a: U8, a: U8): U8 => a
+             ^

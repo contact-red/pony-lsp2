@@ -1,0 +1,8 @@
+Error:
+$DIR/main.pony:6:13: can't reuse name 'create'
+        let create: U8 = 2
+            ^
+    Info:
+    $DIR/main.pony:4:7: previous use of 'create'
+          let x: U8 = 1
+          ^

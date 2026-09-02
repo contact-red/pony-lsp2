@@ -1,0 +1,8 @@
+Error:
+$DIR/main.pony:4:12: can't reuse name 'A'
+class C[A, A]
+           ^
+    Info:
+    $DIR/main.pony:4:9: previous use of 'A'
+    class C[A, A]
+            ^

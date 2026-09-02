@@ -1,0 +1,16 @@
+Error:
+$DIR/main.pony:4:17: can't reuse name 'a'
+    let g = {()(a = y, a = y, a = y): U32 => a }
+                ^
+    Info:
+    $DIR/main.pony:4:31: previous use of 'a'
+        let g = {()(a = y, a = y, a = y): U32 => a }
+                                  ^
+Error:
+$DIR/main.pony:4:24: can't reuse name 'a'
+    let g = {()(a = y, a = y, a = y): U32 => a }
+                       ^
+    Info:
+    $DIR/main.pony:4:31: previous use of 'a'
+        let g = {()(a = y, a = y, a = y): U32 => a }
+                                  ^

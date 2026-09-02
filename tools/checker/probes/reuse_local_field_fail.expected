@@ -1,0 +1,8 @@
+Error:
+$DIR/main.pony:4:9: can't reuse name 'count'
+    let count = U8(1)
+        ^
+    Info:
+    $DIR/main.pony:2:3: previous use of 'count'
+      let count: U8 = 0
+      ^

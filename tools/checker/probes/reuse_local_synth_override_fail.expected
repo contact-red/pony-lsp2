@@ -1,0 +1,8 @@
+Error:
+$DIR/main.pony:3:9: can't reuse name 'runtime_override_defaults'
+    let runtime_override_defaults: U8 = 1
+        ^
+    Info:
+    $DIR/main.pony:1:1: previous use of 'runtime_override_defaults'
+    actor Main
+    ^

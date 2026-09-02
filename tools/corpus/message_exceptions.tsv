@@ -2,3 +2,6 @@
 # suite	test	reason
 parse_expr	JumpTerminatesAnnotatedSequence	ponyc abandons the try and reports it unterminated; the tolerant parser recovers at the semicolon, reports the semicolon, and still finds the end
 parse_expr	SemicolonAfterBreakRejected	ponyc abandons the while and reports it unterminated; the tolerant parser recovers at the semicolon, reports the semicolon, and still finds the end
+sugar_expr	MatchNonExhaustiveSubsetOfEquatableOfSubType	the case defines its own Equatable, which full ponyc rejects as a builtin clash before the match type-checks; the expected message came from the test builtin, which has no Equatable
+sugar_expr	MatchExhaustiveAnnotationNonExhaustiveNoElse	the case defines its own Equatable, which full ponyc rejects as a builtin clash before the match type-checks; the expected message came from the test builtin, which has no Equatable
+sugar_expr	MatchExhaustiveAnnotationExhaustiveWithElse	the case defines its own Equatable, which full ponyc rejects as a builtin clash before the match type-checks; the expected message came from the test builtin, which has no Equatable

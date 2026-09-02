@@ -1,0 +1,28 @@
+Error:
+$DIR/main.pony:1:1: can't use './dep1' without alias, clashing symbols
+use "./dep1"
+^
+Error:
+$DIR/main.pony:6:1: existing type name clashes with type from './dep1'
+primitive Zeta
+^
+    Info:
+    $DIR/dep1/d1.pony:3:1: clash trying to use this type
+    primitive Zeta
+    ^
+Error:
+$DIR/main.pony:7:1: existing type name clashes with type from './dep1'
+primitive Alpha
+^
+    Info:
+    $DIR/dep1/d1.pony:1:1: clash trying to use this type
+    primitive Alpha
+    ^
+Error:
+$DIR/main.pony:8:1: existing type name clashes with type from './dep1'
+primitive Mid
+^
+    Info:
+    $DIR/dep1/d1.pony:2:1: clash trying to use this type
+    primitive Mid
+    ^

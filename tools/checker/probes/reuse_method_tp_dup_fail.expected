@@ -1,0 +1,8 @@
+Error:
+$DIR/main.pony:5:12: can't reuse name 'A'
+  fun f[A, A](x: A): A => x
+           ^
+    Info:
+    $DIR/main.pony:5:9: previous use of 'A'
+      fun f[A, A](x: A): A => x
+            ^

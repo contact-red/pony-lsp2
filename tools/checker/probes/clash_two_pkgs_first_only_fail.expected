@@ -1,0 +1,12 @@
+Error:
+$DIR/main.pony:1:1: can't use 'depa' without alias, clashing symbols
+use "depa"
+^
+Error:
+$DIR/main.pony:4:1: existing type name clashes with type from 'depa'
+class Alpha
+^
+    Info:
+    $DIR/depa/a.pony:1:1: clash trying to use this type
+    class Alpha
+    ^

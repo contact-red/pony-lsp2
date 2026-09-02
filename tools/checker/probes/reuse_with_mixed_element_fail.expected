@@ -1,0 +1,16 @@
+Error:
+$DIR/main.pony:6:10: can't reuse name 'a'
+    with a = Res, (a, a) = (Res, Res) do
+         ^
+    Info:
+    $DIR/main.pony:6:20: previous use of 'a'
+        with a = Res, (a, a) = (Res, Res) do
+                       ^
+Error:
+$DIR/main.pony:6:23: can't reuse name 'a'
+    with a = Res, (a, a) = (Res, Res) do
+                      ^
+    Info:
+    $DIR/main.pony:6:20: previous use of 'a'
+        with a = Res, (a, a) = (Res, Res) do
+                       ^

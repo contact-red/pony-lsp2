@@ -1,0 +1,8 @@
+Error:
+$DIR/main.pony:3:13: can't reuse name 'a'
+    for (a, a) in [(U8(1), U8(2))].values() do
+            ^
+    Info:
+    $DIR/main.pony:3:10: previous use of 'a'
+        for (a, a) in [(U8(1), U8(2))].values() do
+             ^

@@ -1,0 +1,8 @@
+Error:
+$DIR/main.pony:5:14: can't access a private type from another package
+    let x: d._Priv = None
+             ^
+Error:
+$DIR/main.pony:6:12: can't find definition of 'Nope'
+    let y: Nope = None
+           ^

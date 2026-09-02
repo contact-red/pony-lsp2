@@ -1,0 +1,16 @@
+Error:
+$DIR/main.pony:5:11: can't reuse name 'x'
+      let x: U32 = 2
+          ^
+    Info:
+    $DIR/main.pony:3:5: previous use of 'x'
+        let x: U32 = 1
+        ^
+Error:
+$DIR/main.pony:7:13: can't reuse name 'x'
+        let x: U32 = 3
+            ^
+    Info:
+    $DIR/main.pony:3:5: previous use of 'x'
+        let x: U32 = 1
+        ^

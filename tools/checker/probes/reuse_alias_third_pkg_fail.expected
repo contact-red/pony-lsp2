@@ -1,0 +1,4 @@
+Error:
+$DIR/main.pony:2:5: can't reuse name 'col'
+use col = "files"
+    ^

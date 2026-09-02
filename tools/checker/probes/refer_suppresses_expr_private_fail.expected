@@ -1,0 +1,4 @@
+Error:
+$DIR/main.pony:5:5: can't find declaration of 'nope'
+    nope
+    ^

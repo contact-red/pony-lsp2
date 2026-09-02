@@ -1,5 +1,13 @@
 use "../../upstream/tools/lib/ponylang/pony_syntax"
 
+primitive _Importable
+  """
+  Whether an import can supply a name: ponyc's import pass refuses
+  private names and `Main`.
+  """
+  fun apply(name: String val): Bool =>
+    (try name(0)? != '_' else false end) and (name != "Main")
+
 primitive UsePackage
   """The scheme that names a Pony package: bare, or written `package:`."""
   fun allow_name(): Bool => true
@@ -22,11 +30,20 @@ type UseScheme is (UsePackage | UseDirective | UseUnknown)
   How a `use` locator's scheme classifies under ponyc's table.
   """
 
+class val UseAlias
+  """A `use` alias: the name it binds and where that name is written."""
+  let name: String val
+  let offset: USize
+
+  new val create(name': String val, offset': USize) =>
+    name = name'
+    offset = offset'
+
 class val ScannedUse
   """
   One `use` as the loader consumes it: the locator with its scheme
-  classified, whether it carried an alias or a guard, and where its parts
-  are written, in byte offsets.
+  classified, its alias when it has one, whether it carried a guard,
+  and where its parts are written, in byte offsets.
   """
   let scheme: UseScheme
   let scheme_text: String val
@@ -36,36 +53,28 @@ class val ScannedUse
     """
   let locator: String val
     """The locator with any scheme prefix removed."""
-  let aliased: Bool
-  let alias_name: String val
-    """The alias as written; empty when there is none."""
+  let alias: (UseAlias | None)
   let guarded: Bool
   let offset: USize
   let locator_offset: USize
     """Where the locator string is written; the `use` itself when absent."""
-  let alias_offset: USize
-    """Where the alias is written; the `use` itself when there is none."""
 
   new val create(
     scheme': UseScheme,
     scheme_text': String val,
     locator': String val,
-    aliased': Bool,
-    alias_name': String val,
+    alias': (UseAlias | None),
     guarded': Bool,
     offset': USize,
-    locator_offset': USize,
-    alias_offset': USize)
+    locator_offset': USize)
   =>
     scheme = scheme'
     scheme_text = scheme_text'
     locator = locator'
-    aliased = aliased'
-    alias_name = alias_name'
+    alias = alias'
     guarded = guarded'
     offset = offset'
     locator_offset = locator_offset'
-    alias_offset = alias_offset'
 
 primitive ScanUses
   """
@@ -165,8 +174,16 @@ primitive ScanUses
     : ScannedUse
   =>
     (let scheme, let scheme_text, let locator) = _classify(written)
-    ScannedUse(scheme, scheme_text, locator, aliased, alias_name,
-      guarded, use_at, written_at, alias_at)
+    // An alias clause the parse recovery left without a name binds
+    // nothing; the parse diagnostic already reports the source.
+    let alias: (UseAlias | None) =
+      if aliased and (alias_name.size() > 0) then
+        UseAlias(alias_name, alias_at)
+      else
+        None
+      end
+    ScannedUse(scheme, scheme_text, locator, alias, guarded, use_at,
+      written_at)
 
   fun _classify(written: String val)
     : (UseScheme, String val, String val)

@@ -1,0 +1,8 @@
+Error:
+$DIR/main.pony:4:13: can't reuse name 'create'
+    let f = {()(create = y) => U8(1) }
+            ^
+    Info:
+    $DIR/main.pony:4:17: previous use of 'create'
+        let f = {()(create = y) => U8(1) }
+                    ^

@@ -1,0 +1,4 @@
+Error:
+$DIR/main.pony:6:7: method name "FOO" must start a-z or _(a-z)
+  fun FOO(): U8 => 2
+      ^

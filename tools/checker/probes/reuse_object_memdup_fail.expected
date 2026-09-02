@@ -1,0 +1,8 @@
+Error:
+$DIR/main.pony:5:11: can't reuse name 'g'
+      fun g(): U8 => 2
+          ^
+    Info:
+    $DIR/main.pony:4:7: previous use of 'g'
+          fun g(): U8 => 1
+          ^

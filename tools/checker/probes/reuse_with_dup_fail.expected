@@ -1,0 +1,8 @@
+Error:
+$DIR/main.pony:5:10: can't reuse name 'a'
+    with a = FileLines(File(FilePath(FileAuth(env.root), "x"))),
+         ^
+    Info:
+    $DIR/main.pony:7:7: previous use of 'a'
+          a = FileLines(File(FilePath(FileAuth(env.root), "z")))
+          ^

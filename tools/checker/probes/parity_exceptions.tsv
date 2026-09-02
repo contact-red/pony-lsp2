@@ -1,0 +1,3 @@
+reuse_memdup_and_alias_fail	the checker reports the whole reuse family where ponyc stops at its first clash, so one pinned Error sits where ponyc has none
+reuse_capture_three_fail	the checker reports every clashing pair where ponyc's expr_object stops adding members at the first clash, so the earliest pair's Error sits where ponyc has none
+reuse_object_fields_three_fail	the checker reports every clashing pair where ponyc's expr_object stops adding members at the first clash, so the earliest pair's Error sits where ponyc has none

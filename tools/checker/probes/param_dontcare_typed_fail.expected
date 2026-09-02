@@ -1,0 +1,4 @@
+Error:
+$DIR/main.pony:3:9: parameter name cannot be "_"
+  fun f(_: U32): U32 => 1
+        ^

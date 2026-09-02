@@ -1,0 +1,8 @@
+Error:
+$DIR/main.pony:6:1: invalid provides type. Can only be interfaces, traits and intersects of those.
+class Bad is S
+^
+    Info:
+    $DIR/main.pony:6:14: invalid type here
+    class Bad is S
+                 ^

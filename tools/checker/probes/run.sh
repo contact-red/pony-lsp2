@@ -4,6 +4,10 @@
 # diagnostics must carry, so a fixture rejected for the wrong reason is
 # a failure, not an agreement.
 set -eu
+# Comparisons that pin file order against sort order must not drift
+# with the ambient locale.
+LC_ALL=C
+export LC_ALL
 here="$(dirname "$0")"
 # Absolute paths, because the batch check below runs from the fixture
 # directory.
@@ -18,10 +22,26 @@ trap 'rm -rf "$tmp"' EXIT
 
 dirs=$(cd "$here" && find . -mindepth 1 -maxdepth 1 -type d | sed 's|^\./||' | sort)
 rows=$(cut -f1 "$here/expected.tsv" | sort)
+# An orphaned pin — a .expected whose fixture was renamed or removed —
+# would otherwise never be opened again.
+for exp in "$here"/*.expected; do
+  base=$(basename "$exp" .expected)
+  if ! [ -d "$here/$base" ]; then
+    echo "PROBE FAIL: $exp has no fixture directory"
+    fails=$((fails+1))
+  fi
+done
 if [ "$dirs" != "$rows" ]; then
   echo "PROBE FAIL: fixture directories and expected.tsv disagree"
   echo "$dirs" > "$tmp/dirs"; echo "$rows" > "$tmp/rows"
   diff "$tmp/dirs" "$tmp/rows" || true
+  exit 1
+fi
+# Walks of expected.tsv in file order are compared against walks of
+# the directories in sorted order; the file must stay sorted for
+# those comparisons to line up.
+if [ "$(cut -f1 "$here/expected.tsv")" != "$rows" ]; then
+  echo "PROBE FAIL: expected.tsv is not sorted by fixture name"
   exit 1
 fi
 
@@ -40,6 +60,11 @@ while IFS="	" read -r name want substring; do
   if [ "$got" != "$single_want" ]; then
     echo "PROBE FAIL: $name expected $single_want got $got"
     fails=$((fails+1))
+  elif [ "$want" = ok ] && [ -n "$substring" ]; then
+    # A substring on an ok row is never read; flag it instead of
+    # silently ignoring it.
+    echo "PROBE FAIL: $name is ok but carries a substring"
+    fails=$((fails+1))
   elif [ "$want" != ok ] && [ -z "$substring" ]; then
     # An empty substring matches anything, which would quietly turn the
     # row back into a bare verdict check.
@@ -53,12 +78,16 @@ while IFS="	" read -r name want substring; do
   # positions, and carets, with the fixture path abstracted.
   if [ -f "$here/$name.expected" ]; then
     dir=$(cd "$here/$name" && pwd)
-    if ! sed "s|$dir|\$DIR|g" "$tmp/err" | \
-      diff -q - "$here/$name.expected" >/dev/null
+    # The paths land in sed patterns, so regex metacharacters and the
+    # delimiter must be literal.
+    dir_re=$(printf '%s' "$dir" | sed 's/[][\.*^$|&]/\\&/g')
+    roots_re=$(printf '%s' "$roots" | sed 's/[][\.*^$|&]/\\&/g')
+    if ! sed -e "s|$dir_re|\$DIR|g" -e "s|$roots_re|\$ROOTS|g" \
+      "$tmp/err" | diff -q - "$here/$name.expected" >/dev/null
     then
       echo "PROBE FAIL: $name rendering differs from $name.expected"
-      sed "s|$dir|\$DIR|g" "$tmp/err" | \
-        diff - "$here/$name.expected" | head -10
+      sed -e "s|$dir_re|\$DIR|g" -e "s|$roots_re|\$ROOTS|g" \
+        "$tmp/err" | diff - "$here/$name.expected" | head -10
       fails=$((fails+1))
     fi
   fi
@@ -81,7 +110,14 @@ cli_want=1 cli_check --path=
 cli_want=1 cli_check --batch
 cli_want=1 cli_check
 cli_want=1 cli_check --path "" "$here/clean_minimal"
-cli_want=1 cli_check --path --verbose "$here/clean_minimal"
+cli_want=1 cli_check --path --files "$here/clean_minimal"
+code=0
+"$checker" "$here/clean_minimal" --errors >/dev/null 2>"$tmp/err" || code=$?
+if [ "$code" != 1 ] || ! grep -q -- "--errors needs --batch" "$tmp/err"
+then
+  echo "PROBE FAIL: single-mode --errors expected exit 1 with its message"
+  fails=$((fails+1))
+fi
 cli_want=1 cli_check --path -h "$here/clean_minimal"
 cli_want=1 cli_check --batch=
 code=0
@@ -92,25 +128,25 @@ then
   fails=$((fails+1))
 fi
 code=0
-"$checker" "$here/clean_minimal" --path="$roots" --verbose \
+"$checker" "$here/clean_minimal" --path="$roots" --files \
   >/dev/null 2>"$tmp/err" || code=$?
 if [ "$code" != 0 ] || ! grep -q "^Opening " "$tmp/err"; then
-  echo "PROBE FAIL: --verbose expected exit 0 with Opening lines"
+  echo "PROBE FAIL: --files expected exit 0 with Opening lines"
   fails=$((fails+1))
 fi
-# A batch case list naming one fixture twice: --verbose reports each
+# A batch case list naming one fixture twice: --files reports each
 # file once, because the second load is served from the cache, and
 # batch mode without --errors writes nothing to stderr at all.
 printf '%s\n%s\n' "$here/clean_minimal" "$here/clean_minimal" \
   > "$tmp/twice"
 code=0
-"$checker" --batch="$tmp/twice" --path="$roots" --verbose \
+"$checker" --batch="$tmp/twice" --path="$roots" --files \
   >/dev/null 2>"$tmp/err" || code=$?
 opened=$(grep -c "^Opening " "$tmp/err" || true)
 sources=$(find "$here/clean_minimal" "$roots/builtin" -name '*.pony' \
   | grep -c "")
 if [ "$code" != 0 ] || [ "$opened" != "$sources" ]; then
-  echo "PROBE FAIL: batch --verbose expected $sources Opening lines," \
+  echo "PROBE FAIL: batch --files expected $sources Opening lines," \
     "one per file, got $opened"
   fails=$((fails+1))
 fi
@@ -146,6 +182,56 @@ then
   echo "  diagnostics on stderr"
   fails=$((fails+1))
 fi
+printf '%s\t%s\n' "$here/clean_minimal" "x" > "$tmp/tabbed"
+code=0
+"$checker" --batch="$tmp/tabbed" --path="$roots" >"$tmp/bout" 2>"$tmp/err" \
+  || code=$?
+if [ "$code" != 1 ] || [ -s "$tmp/bout" ] || \
+  ! grep -q "batch list holds a control character" "$tmp/err"
+then
+  echo "PROBE FAIL: tabbed batch line expected exit 1 before any verdict"
+  fails=$((fails+1))
+fi
+printf '%s\n%s\t%s\n' "$here/clean_minimal" "$here/clean_minimal" "x" \
+  > "$tmp/late_tab"
+code=0
+"$checker" --batch="$tmp/late_tab" --path="$roots" >"$tmp/bout" 2>"$tmp/err" \
+  || code=$?
+if [ "$code" != 1 ] || [ -s "$tmp/bout" ] || \
+  ! grep -q "batch list holds a control character on line 2" "$tmp/err"
+then
+  echo "PROBE FAIL: control character after a good line expected exit 1"
+  echo "  before any verdict, naming line 2"
+  fails=$((fails+1))
+fi
+printf '%s\177x\n' "$here/clean_minimal" > "$tmp/del_list"
+code=0
+"$checker" --batch="$tmp/del_list" --path="$roots" >"$tmp/bout" 2>"$tmp/err" \
+  || code=$?
+if [ "$code" != 1 ] || [ -s "$tmp/bout" ] || \
+  ! grep -q "batch list holds a control character" "$tmp/err"
+then
+  echo "PROBE FAIL: DEL in a batch line expected exit 1"
+  fails=$((fails+1))
+fi
+printf '%s\r%s\n' "$here/clean_minimal" "x" > "$tmp/mid_cr"
+code=0
+"$checker" --batch="$tmp/mid_cr" --path="$roots" >"$tmp/bout" 2>"$tmp/err" \
+  || code=$?
+if [ "$code" != 1 ] || [ -s "$tmp/bout" ] || \
+  ! grep -q "batch list holds a control character" "$tmp/err"
+then
+  echo "PROBE FAIL: mid-line carriage return expected exit 1"
+  fails=$((fails+1))
+fi
+printf '%s\r\n' "$here/clean_minimal" > "$tmp/crlf_list"
+code=0
+"$checker" --batch="$tmp/crlf_list" --path="$roots" >/dev/null 2>&1 \
+  || code=$?
+if [ "$code" != 0 ]; then
+  echo "PROBE FAIL: CRLF batch list expected exit 0 got $code"
+  fails=$((fails+1))
+fi
 printf '%s\n' "$here/clean_minimal" > "$tmp/one_case"
 code=0
 "$checker" --batch "$tmp/one_case" --path="$roots" >/dev/null 2>&1 || code=$?
@@ -171,16 +257,22 @@ done < "$here/expected.tsv"
 
 # And its --errors rendering must be the single runs' renderings,
 # concatenated in case order — across the 32-case and 256-item chunk
-# boundaries.
+# boundaries — each failing case's block directly under its own
+# `<case>:` heading. The expectation is reconstructed whole, heading
+# placement included.
 ( cd "$here" && "$checker" --batch="$tmp/cases" --path="$roots" \
   --errors ) >/dev/null 2>"$tmp/batch_err" || {
     echo "PROBE FAIL: batch --errors run did not exit 0"
     fails=$((fails+1))
   }
 : > "$tmp/single_err"
-while IFS="	" read -r name _ _; do
+while IFS="	" read -r name want _; do
   ( cd "$here" && "$checker" "$name" --path="$roots" ) \
-    >/dev/null 2>> "$tmp/single_err" || true
+    >/dev/null 2>"$tmp/one_err" || true
+  if [ "$want" != ok ]; then
+    printf '%s:\n' "$name" >> "$tmp/single_err"
+    cat "$tmp/one_err" >> "$tmp/single_err"
+  fi
 done < "$here/expected.tsv"
 if ! diff -q "$tmp/batch_err" "$tmp/single_err" >/dev/null; then
   echo "PROBE FAIL: batch --errors rendering differs from the single runs"

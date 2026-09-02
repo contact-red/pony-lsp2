@@ -1,0 +1,8 @@
+Error:
+$DIR/main.pony:3:9: parameter name "Bar" must start a-z
+  fun f(Bar: U32, __z: U32): U32 => 1
+        ^
+Error:
+$DIR/main.pony:3:19: parameter name "__z" cannot start with underscores
+  fun f(Bar: U32, __z: U32): U32 => 1
+                  ^

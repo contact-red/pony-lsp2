@@ -14,6 +14,20 @@ annotation_packed_fail	fail	a 'packed' annotation can only appear on a struct de
 bare_lambda_typeparams_fail	fail	a bare lambda cannot specify type parameters
 cap_only_type_fail	fail	a type cannot be only a capability
 cast_literal_fail	fail	Cannot cast uninferred numeric literal
+clash_case_open_vs_own_fail	fail	can't use './dep1' without alias, clashing symbols
+clash_case_own_builtin_fail	fail	type name clashes with builtin type
+clash_many_symbols_fail	fail	can't use './dep1' without alias, clashing symbols
+clash_open_private_and_main_ok	ok	
+clash_open_vs_builtin_fail	fail	existing type name clashes with type from './dep1'
+clash_open_vs_own_fail	fail	can't use './dep1' without alias, clashing symbols
+clash_own_builtin_fail	fail	type name clashes with builtin type
+clash_private_builtin_ok	ok	
+clash_repeat_import_failopen_ok	ok	
+clash_suppresses_entity_provides_fail	fail	can't use './dep1' without alias, clashing symbols
+clash_suppresses_island_reuse_fail	fail	can't use './dep2' without alias, clashing symbols
+clash_suppresses_names_fail	fail	can't use './dep1' without alias, clashing symbols
+clash_two_opens_fail	fail	can't use './dep2' without alias, clashing symbols
+clash_two_pkgs_first_only_fail	fail	can't use 'depa' without alias
 clean_minimal	ok	
 compile_error_docstring	fail	a compile error must be the entire ifdef clause
 constraint_typeargs_ok	ok	
@@ -33,6 +47,8 @@ dontcare_type_fail	fail	can't use '_' as a type name
 ellipsis_outside_ffi_fail	fail	... may only appear in FFI declarations
 embed_local_fail	fail	Local variables cannot be embedded
 ephemeral_provides_fail	fail	can't specify ephemeral in a provides type
+expr_private_keeps_object_provides_fail	fail	can't access a private type from another package
+expr_reuse_keeps_object_provides_fail	fail	invalid provides type
 ffi_guard_ifdef_fail	fail	FFIs parameters cannot have default values
 ffi_named_args_fail	fail	FFIs cannot take named arguments
 ffi_two_return_types	fail	FFI functions must specify a single return type
@@ -49,10 +65,15 @@ intrinsic_outside_body_fail	fail	a compile intrinsic must be a method body
 lambda_capture_ref_ok	ok	
 lambda_capture_typed_fail	fail	value missing for lambda expression capture (cannot specify type without value)
 lambda_capture_valued_ok	ok	
+lambda_dontcare_antecedent_ok	ok	
+lambda_dontcare_noante_failopen_ok	ok	
+lambda_dontcare_untyped_ok	ok	
 lambda_return_cap_fail	fail	lambda return type: val
 lambda_this_capture_fail	fail	use a named capture to capture 'this'
 lambda_this_ok	ok	
+legality_ffi_param_ok	ok	
 legality_suppresses_names_fail	fail	class behaviours are not allowed
+legality_suppresses_reuse_fail	fail	method name "FOO" must start a-z or _(a-z)
 load_blame_last_file_fail	fail	can't load package './empty1'
 load_failed_root	load-failed	no Pony source files in package
 load_suppresses_names_fail	fail	can't load package './missing'
@@ -62,6 +83,7 @@ method_docstring_body_fail	fail	methods with bodies must put docstrings in the b
 multi_package_names_ok	ok	
 name_double_underscore_fail	fail	method name "my__thing" cannot contain double underscores
 name_local_case_fail	fail	local variable name "Foo" must start a-z
+name_member_case_unsuggested_fail	fail	can't find declaration of 'helPer'
 name_method_tick_fail	fail	method name "bad'" cannot contain prime (')
 name_out_of_scope_ok	ok	
 name_suggest_case_fail	fail	can't find declaration of 'myVal', did you mean 'myval'?
@@ -74,6 +96,7 @@ name_trailing_underscore_fail	fail	field name "my_" cannot have a trailing under
 name_type_case_fail	fail	class name "fooBar" must start A-Z or _(A-Z)
 name_type_param_fail	fail	type parameter name "a" must start A-Z
 name_unresolved_fail	fail	can't find declaration of 'nv'
+names_suppresses_object_provides_fail	fail	can't find declaration of 'nope'
 nosupertype_provides_fail	fail	a 'nosupertype' type cannot specify a provides list
 object_member_ok	ok	
 object_provides_member_ok	ok	
@@ -83,6 +106,9 @@ package_docstring_suppresses_names_fail	fail	the package already has a docstring
 package_qualifier_fail	fail	can't find package 'col'
 packageref_private_fail	fail	can't access a private type from another package
 packageref_type_fail	fail	can't find type 'NoSuchThing' in package 'col'
+param_dontcare_typed_fail	fail	parameter name cannot be "_"
+param_name_fail	fail	parameter name "Bar" must start a-z
+param_tick_ok	ok	
 parse_error_suppresses_fail	fail	expected a parameter name
 parse_suppresses_failures_fail	fail	expected a closing parenthesis
 parse_suppresses_names_only_fail	fail	expected a closing parenthesis
@@ -90,14 +116,127 @@ platform_as_user_flag_fail	fail	"linux" is not a valid user build flag
 precedence_mix_fail	fail	Operator precedence is not supported. Parentheses required.
 precedence_parens_ok	ok	
 primitive_behaviour_fail	fail	primitive behaviours are not allowed
+provides_actor_fail	fail	invalid provides type. Can only be interfaces, traits and intersects of those.
+provides_alias_class_failopen_ok	ok	
+provides_alias_trait_ok	ok	
+provides_class_fail	fail	invalid provides type. Can only be interfaces, traits and intersects of those.
+provides_interface_fail	fail	invalid provides type
+provides_intersect_fail	fail	invalid provides type
+provides_intersect_ok	ok	
+provides_object_class_fail	fail	invalid provides type. Can only be interfaces, traits and intersects of those.
+provides_prim_fail	fail	invalid provides type. Can only be interfaces, traits and intersects of those.
 provides_qualified_ok	ok	
+provides_struct_fail	fail	invalid provides type. Can only be interfaces, traits and intersects of those.
+provides_suppresses_names_fail	fail	invalid provides type. Can only be interfaces, traits and intersects of those.
+provides_tp_fail	fail	invalid provides type. Can only be interfaces, traits and intersects of those.
+provides_trait_declarer_fail	fail	invalid provides type. Can only be interfaces, traits and intersects of those.
 provides_tuple_fail	fail	invalid provides type
 provides_writer_ok	ok	
 qualified_dontcare_fail	fail	'_' cannot be in a package
 qualified_private_fail	fail	can't access a private type from another package
+refer_suppresses_expr_private_fail	fail	can't find declaration of 'nope'
+refer_suppresses_island_reuse_fail	fail	can't find declaration of 'nosuchname'
 render_order	fail	can't load package 'nosuch_pkg_render'
 return_outside_body_fail	fail	return must occur in a method body
 return_value_behaviour_fail	fail	A return in a constructor or a behaviour can't return a value
+reuse_actor_create_case_fail	fail	can't reuse name 'create'
+reuse_alias_dup_fail	fail	can't reuse name 'col'
+reuse_alias_entity_ok	ok	
+reuse_alias_same_pkg_case_ok	ok	
+reuse_alias_same_pkg_escaped_ok	ok	
+reuse_alias_same_pkg_ok	ok	
+reuse_alias_third_pkg_fail	fail	can't reuse name 'col'
+reuse_barelambda_apply_fail	fail	can't reuse name 'apply'
+reuse_capture_after_local_fail	fail	can't reuse name 'v'
+reuse_capture_apply_fail	fail	can't reuse name 'apply'
+reuse_capture_create_fail	fail	can't reuse name 'create'
+reuse_capture_nested_island_fail	fail	can't reuse name 'apply'
+reuse_capture_pair_fail	fail	can't reuse name 'a'
+reuse_capture_three_fail	fail	can't reuse name 'a'
+reuse_destructure_dup_fail	fail	can't reuse name 'a'
+reuse_destructure_reuse_fail	fail	can't reuse name 'a'
+reuse_dontcare_ok	ok	
+reuse_dup_param_fail	fail	can't reuse name 'a'
+reuse_entity_case_fail	fail	can't reuse name 'THING'
+reuse_entity_crossfile_fail	fail	can't reuse name 'Twice'
+reuse_entity_samefile_fail	fail	can't reuse name 'Twice'
+reuse_exact_create_case_fail	fail	can't reuse name 'create'
+reuse_field_alias_fail	fail	can't reuse name 'coll'
+reuse_field_method_fail	fail	can't reuse name 'foo'
+reuse_for_dup_fail	fail	can't reuse name 'a'
+reuse_fun_create_ok	ok	
+reuse_grouped_leak_ok	ok	
+reuse_grouped_rhs_fail	fail	can't reuse name 'a'
+reuse_lambda_alias_fail	fail	can't reuse name 'col'
+reuse_lambda_dup_param_fail	fail	can't reuse name 'a'
+reuse_lambda_local_create_fail	fail	can't reuse name 'create'
+reuse_lambda_local_ok	ok	
+reuse_lambda_param_apply_fail	fail	can't reuse name 'apply'
+reuse_lambda_tp_dup_fail	fail	can't reuse name 'A'
+reuse_lambda_tp_entity_fail	fail	can't reuse name 'B'
+reuse_lambda_tp_entity_tp_fail	fail	can't reuse name 'A'
+reuse_local_alias_fail	fail	can't reuse name 'col'
+reuse_local_create_after_new_ok	ok	
+reuse_local_entity_ok	ok	
+reuse_local_field_fail	fail	can't reuse name 'count'
+reuse_local_local_fail	fail	can't reuse name 'x'
+reuse_local_method_fail	fail	can't reuse name 'helper'
+reuse_local_own_init_let_ok	ok	
+reuse_local_own_init_ok	ok	
+reuse_local_param_fail	fail	can't reuse name 'env'
+reuse_local_synth_create_fail	fail	can't reuse name 'create'
+reuse_local_synth_override_fail	fail	can't reuse name 'runtime_override_defaults'
+reuse_local_tp_ok	ok	
+reuse_match_dup_fail	fail	can't reuse name 'a'
+reuse_member_fail	fail	can't reuse name 'foo'
+reuse_member_mixed_fail	fail	can't reuse name 'fOo'
+reuse_memdup_and_alias_fail	fail	can't reuse name 'coll'
+reuse_method_alias_fail	fail	can't reuse name 'coll'
+reuse_method_tp_dup_fail	fail	can't reuse name 'A'
+reuse_method_tp_entity_fail	fail	can't reuse name 'B'
+reuse_method_tp_entity_tp_fail	fail	can't reuse name 'A'
+reuse_object_create_case_fail	fail	can't reuse name 'create'
+reuse_object_create_nonfirst_fail	fail	can't reuse name 'create'
+reuse_object_fields_fail	fail	can't reuse name 'a'
+reuse_object_fields_three_fail	fail	can't reuse name 'a'
+reuse_object_local_create_fail	fail	can't reuse name 'create'
+reuse_object_local_ok	ok	
+reuse_object_member_alias_fail	fail	can't reuse name 'coll'
+reuse_object_member_fail	fail	can't reuse name 'helper'
+reuse_object_memdup_fail	fail	can't reuse name 'g'
+reuse_object_new_create_fail	fail	can't reuse name 'create'
+reuse_object_tp_dup_fail	fail	can't reuse name 'A'
+reuse_object_tp_entity_fail	fail	can't reuse name 'B'
+reuse_object_tp_entity_tp_fail	fail	can't reuse name 'A'
+reuse_override_member_case_fail	fail	can't reuse name 'runtime_override_defaults'
+reuse_param_capture_fail	fail	can't reuse name 'x'
+reuse_prim_create_case_fail	fail	can't reuse name 'create'
+reuse_prim_eq_ok	ok	
+reuse_shadow_block_fail	fail	can't reuse name 'x'
+reuse_shadow_chain_fail	fail	can't reuse name 'x'
+reuse_struct_create_case_fail	fail	can't reuse name 'create'
+reuse_suppresses_clash_fail	fail	can't reuse name 'x'
+reuse_suppresses_type_private_fail	fail	can't reuse name 'a'
+reuse_synth_alias_fail	fail	can't reuse name 'create'
+reuse_synthesized_create_fail	fail	can't reuse name 'create'
+reuse_tp_dup_fail	fail	can't reuse name 'A'
+reuse_tp_entity_crossfile_fail	fail	can't reuse name 'Thing'
+reuse_tp_entity_fail	fail	can't reuse name 'B'
+reuse_tp_entity_later_failopen_ok	ok	
+reuse_tp_member_ok	ok	
+reuse_trait_create_ok	ok	
+reuse_with_cross_init_failopen_ok	ok	
+reuse_with_dup_fail	fail	can't reuse name 'a'
+reuse_with_element_pair_fail	fail	can't reuse name 'a'
+reuse_with_mixed_element_fail	fail	can't reuse name 'a'
+reuse_with_nested_blocks_ok	ok	
+reuse_with_nested_earlier_fail	fail	can't reuse name 'b'
+reuse_with_outer_fail	fail	can't reuse name 'b'
+reuse_with_outer_pair_fail	fail	can't reuse name 'a'
+reuse_with_three_fail	fail	can't reuse name 'b'
+reuse_withname_headlocal_fail	fail	can't reuse name 'b'
+reuse_withname_nested_ok	ok	
+scope_default_arg_ok	ok	
 semi_leading_newline	fail	Unexpected semicolon
 semi_missing_leaf	fail	Use a semi colon to separate expressions
 semi_same_line_ok	ok	
@@ -116,8 +255,12 @@ tp_default_gencap_fail	fail	a capability set can only appear in a type constrain
 tp_default_tuple_ok	ok	
 trait_member_ok	ok	
 tuple_constraint_fail	fail	tuple types can't be used as type constraints
+type_names_suppresses_provides_fail	fail	can't find definition of 'Nope'
 type_operator_mix_fail	fail	Operator precedence is not supported. Parentheses required.
 type_param_ok	ok	
+type_private_keeps_names_fail	fail	can't access a private type from another package
+type_private_keeps_provides_fail	fail	can't access a private type from another package
+type_private_keeps_type_names_fail	fail	can't access a private type from another package
 type_qualified_fail	fail	can't find definition of 'NoSuchThing'
 type_qualified_ok	ok	
 type_unresolved_fail	fail	can't find definition of 'NoSuchType'

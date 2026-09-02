@@ -1,0 +1,8 @@
+Error:
+$DIR/main.pony:1:1: can't reuse name 'runtime_override_defaults'
+actor Main
+^
+    Info:
+    $DIR/main.pony:3:3: previous use of 'runtime_override_defaults' differs only by case
+      fun runtime_Override_defaults(): U8 => 1
+      ^

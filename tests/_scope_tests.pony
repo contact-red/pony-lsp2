@@ -13,6 +13,14 @@ primitive \nodoc\ _ScopeTests is TestList
     test(_TestAForNameDoesNotCaptureItsIterator)
     test(_TestResolvesALambdaParameter)
     test(_TestResolvesAMatchPattern)
+    test(_TestResolvesATuplePatternCaptureInTheBody)
+    test(_TestAGroupedLocalIsVisibleAfterItsGroup)
+    test(_TestADestructuredLocalIsVisibleAfterItsStatement)
+    test(_TestACaptureIsNotVisibleInALaterCase)
+    test(_TestACaptureIsNotVisibleAfterItsMatch)
+    test(_TestAGroupedLocalIsNotVisibleAfterItsBlock)
+    test(_TestAWithLocalIsNotVisibleAfterItsWith)
+    test(_TestADefaultArgLocalIsNotVisibleInTheBody)
     test(_TestALocalShadowsAType)
     test(_TestFallsThroughToTheWorkspace)
     test(_TestFFIParametersAreScopedToTheirDeclaration)
@@ -65,6 +73,32 @@ primitive \nodoc\ _Bound
     binder
 
 primitive \nodoc\ _Expect
+  fun unbound(
+    h: TestHelper,
+    binder: Binder ref,
+    source: String val,
+    needle: String val,
+    nth: USize,
+    why: String val)
+  =>
+    """
+    The occurrence must exist and must resolve to nothing — a missed
+    needle would land the cursor at 0:0 and pass vacuously.
+    """
+    try
+      source.find(needle where nth = nth)?
+    else
+      h.fail(why + ": the source has no such occurrence")
+      return
+    end
+    (let line, let character) = _Cursor(source, needle, nth)
+    match binder.resolve_at("/w/app/main.pony", line, character)
+    | let _: Binding =>
+      h.fail(why)
+    | let _: BoundItem =>
+      h.fail(why + ": resolved to a workspace declaration")
+    end
+
   fun binding(
     h: TestHelper,
     binder: Binder ref,
@@ -78,6 +112,7 @@ primitive \nodoc\ _Expect
     (let line, let character) = _Cursor(source, needle, nth)
     match binder.resolve_at("/w/app/main.pony", line, character)
     | let bound: Binding =>
+      h.assert_eq[String](needle, bound.name, why + ": name")
       h.assert_is[BindingKind](kind, bound.kind, why + ": kind")
       h.assert_eq[USize](
         declared_on, bound.name_span.start_line, why + ": declared on")
@@ -241,6 +276,8 @@ class \nodoc\ iso _TestResolvesAMatchPattern is UnitTest
     _Expect.binding(h, _Bound(source), source, "got", 1, BindLocal, 3,
       "the case body")
 
+
+
 class \nodoc\ iso _TestALocalShadowsAType is UnitTest
   fun name(): String => "scope/a local shadows a type of the same name"
 
@@ -304,3 +341,165 @@ class \nodoc\ iso _TestFFIParametersAreScopedToTheirDeclaration is UnitTest
       "class Foo\n"
     _Expect.binding(h, _Bound(source), source, "event", 1, BindParam, 1,
       "the second declaration's parameter")
+
+class \nodoc\ iso _TestResolvesATuplePatternCaptureInTheBody
+  is UnitTest
+  fun name(): String =>
+    "scope/resolves a tuple pattern capture in the body"
+
+  fun apply(h: TestHelper) =>
+    """
+    A capture in a tuple pattern lands in the case's scope, not the
+    sequence the tuple element wraps it in, so a use in the body
+    resolves to it.
+    """
+    let source: String val =
+      "class Foo\n" +
+      "  fun f(): U32 =>\n" +
+      "    match (U32(1), U32(2))\n" +
+      "    | (let left: U32, let rest: U32) => left + rest\n" +
+      "    else\n" +
+      "      0\n" +
+      "    end\n"
+    _Expect.binding(h, _Bound(source), source, "left", 1, BindLocal, 3,
+      "the arm body")
+
+class \nodoc\ iso _TestAGroupedLocalIsVisibleAfterItsGroup is UnitTest
+  fun name(): String => "scope/a grouped local is visible after its group"
+
+  fun apply(h: TestHelper) =>
+    """
+    ponyc's paren rule opens no scope, so a local declared inside a
+    parenthesised sequence outlives the closing paren.
+    """
+    let source: String val =
+      "class Foo\n" +
+      "  fun f(): U32 =>\n" +
+      "    let y = (let x: U32 = 1; x + 0)\n" +
+      "    x\n"
+    _Expect.binding(h, _Bound(source), source, "x", 2, BindLocal, 2,
+      "after the group")
+
+class \nodoc\ iso _TestADestructuredLocalIsVisibleAfterItsStatement
+  is UnitTest
+  fun name(): String =>
+    "scope/a destructured local is visible after its statement"
+
+  fun apply(h: TestHelper) =>
+    """
+    ponyc's tuple-assignment sugar rewrites each element into the
+    enclosing block, so the names outlive the pattern's own sequences.
+    """
+    let source: String val =
+      "class Foo\n" +
+      "  fun f(): U32 =>\n" +
+      "    (let left: U32, let rest: U32) = (U32(1), U32(2))\n" +
+      "    left + rest\n"
+    _Expect.binding(h, _Bound(source), source, "left", 1, BindLocal, 2,
+      "after the destructuring statement")
+
+class \nodoc\ iso _TestACaptureIsNotVisibleInALaterCase is UnitTest
+  fun name(): String => "scope/a capture is not visible in a later case"
+
+  fun apply(h: TestHelper) =>
+    let source: String val =
+      "class Foo\n" +
+      "  fun f(): U32 =>\n" +
+      "    match U32(1)\n" +
+      "    | let seen: U32 if seen > 2 => seen\n" +
+      "    | U32(0) => seen\n" +
+      "    else\n" +
+      "      0\n" +
+      "    end\n"
+    let binder = _Bound(source)
+    _Expect.binding(h, binder, source, "seen", 1, BindLocal, 3,
+      "the capture's own guard")
+    _Expect.unbound(h, binder, source, "seen", 3,
+      "a capture escaped its case")
+
+class \nodoc\ iso _TestACaptureIsNotVisibleAfterItsMatch is UnitTest
+  fun name(): String => "scope/a capture is not visible after its match"
+
+  fun apply(h: TestHelper) =>
+    let source: String val =
+      "class Foo\n" +
+      "  fun f(): U32 =>\n" +
+      "    match U32(1)\n" +
+      "    | let seen: U32 => seen\n" +
+      "    else\n" +
+      "      0\n" +
+      "    end\n" +
+      "    seen\n"
+    let binder = _Bound(source)
+    _Expect.binding(h, binder, source, "seen", 1, BindLocal, 3,
+      "the arm body")
+    _Expect.unbound(h, binder, source, "seen", 2,
+      "a capture escaped its match")
+
+class \nodoc\ iso _TestAGroupedLocalIsNotVisibleAfterItsBlock
+  is UnitTest
+  fun name(): String =>
+    "scope/a grouped local is not visible after its block"
+
+  fun apply(h: TestHelper) =>
+    """
+    A group's sequence is transparent, so the local lands in the
+    enclosing block's scope — and no further: it still dies with
+    that block.
+    """
+    let source: String val =
+      "class Foo\n" +
+      "  fun f(): U32 =>\n" +
+      "    if true then\n" +
+      "      let y = (let inner: U32 = 1; inner + 0)\n" +
+      "    end\n" +
+      "    inner\n"
+    let binder = _Bound(source)
+    _Expect.binding(h, binder, source, "inner", 1, BindLocal, 3,
+      "inside the group's own statement")
+    _Expect.unbound(h, binder, source, "inner", 2,
+      "a grouped local escaped its enclosing block")
+
+class \nodoc\ iso _TestAWithLocalIsNotVisibleAfterItsWith
+  is UnitTest
+  fun name(): String =>
+    "scope/a with-element local is not visible after its with"
+
+  fun apply(h: TestHelper) =>
+    """
+    A `with` element's initialiser sequence is transparent, so a
+    local declared there is visible in the `with` body — and no
+    further: it still dies with the `with`.
+    """
+    let source: String val =
+      "class Foo\n" +
+      "  fun f(): U32 =>\n" +
+      "    with w = (let held: U32 = 1; held + 0) do\n" +
+      "      held\n" +
+      "    end\n" +
+      "    held\n"
+    let binder = _Bound(source)
+    _Expect.binding(h, binder, source, "held", 2, BindLocal, 2,
+      "the with body")
+    _Expect.unbound(h, binder, source, "held", 3,
+      "a with-element local escaped its with")
+
+class \nodoc\ iso _TestADefaultArgLocalIsNotVisibleInTheBody
+  is UnitTest
+  fun name(): String =>
+    "scope/a default-arg local is not visible in the body"
+
+  fun apply(h: TestHelper) =>
+    """
+    ponyc scopes a parameter's default value, so a local declared
+    there is visible inside the default and nowhere else.
+    """
+    let source: String val =
+      "class Foo\n" +
+      "  fun g(a: U32 = (let held: U32 = 1; held + 0)): U32 =>\n" +
+      "    held\n"
+    let binder = _Bound(source)
+    _Expect.binding(h, binder, source, "held", 1, BindLocal, 1,
+      "the default value's own sequence")
+    _Expect.unbound(h, binder, source, "held", 2,
+      "a default-arg local escaped into the body")

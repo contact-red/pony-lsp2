@@ -1,0 +1,8 @@
+Error:
+$DIR/a.pony:1:11: can't reuse name 'Twice'
+primitive Twice
+          ^
+    Info:
+    $DIR/b.pony:1:1: previous use of 'Twice'
+    primitive Twice
+    ^
