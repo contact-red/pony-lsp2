@@ -38,18 +38,20 @@ appears once, at the first case whose load opened it. The two
 streams are written independently, so read them separately; merged,
 their lines interleave without order.
 
-Diagnostics are staged in ponyc's pass order: the families — parse,
-legality and load, reuse, import clash, the nominal private-type
-check, nominal types, entity provides, references, the
-qualified-expression private-type check, island reuse,
-object-literal provides — report only up to the first family with
-anything to report, as ponyc's own passes stop at their first
-failing stage. Fixing everything one run reports can
-therefore surface a later family's findings on the next run. The two
-private-type checks and island reuse ride along without closing the
-ladder: ponyc reports the private-type checks without failing a
-pass, and island reuse shares the expr rung with object-literal
-provides, whose report closes it.
+Diagnostics report in stages. Parse diagnostics report alone,
+then legality and load together. Past that, each family carries
+the ponyc pass its rule runs in — scope (reuse), import (clash),
+name (the private-type check on a nominal, and nominal types),
+flatten (entity provides), refer (references), expr (the
+private-type check on a qualified expression, island reuse,
+object-literal provides) — and a family that fails its pass
+suppresses every later pass. The families of one pass report
+together. Where ponyc's traversal stops at the first finding of a
+pass, the checker reports the whole family. The two private-type
+checks fail no pass: ponyc reports them and keeps going, so when
+they are the only families reporting, nothing is suppressed.
+Fixing everything one run reports can therefore surface a later
+pass's findings on the next run.
 
 The layers: `loader.pony` is the one component that reads disk or
 resolves a `use`, and drives every whole-program rule family over

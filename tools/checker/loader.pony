@@ -158,6 +158,39 @@ primitive _PackageLegality
     end
     None
 
+primitive _Pass
+  """
+  The ponyc passes the ladder stages, in ponyc's order. A family's
+  pass, and whether its rule failing fails that pass, are both
+  checkable against ponyc's source; only the relative order of
+  these numbers is used.
+  """
+  fun scope(): U8 => 1
+  fun import(): U8 => 2
+  fun name(): U8 => 3
+  fun flatten(): U8 => 4
+  fun refer(): U8 => 5
+  fun expr(): U8 => 6
+
+class val _Rung
+  """
+  One family of the diagnostics ladder: the ponyc pass its rule
+  runs in, whether a report there fails that pass so no later pass
+  runs, and the family's diagnostics.
+  """
+  let pass: U8
+  let fails_pass: Bool
+  let family: Array[CheckDiagnostic] val
+
+  new val create(
+    pass': U8,
+    fails_pass': Bool,
+    family': Array[CheckDiagnostic] val)
+  =>
+    pass = pass'
+    fails_pass = fails_pass'
+    family = family'
+
 class val Program
   """
   A loaded program: the packages reached from the root, in load order;
@@ -181,22 +214,25 @@ class val Program
     legality or load report closed it. Also computed once by the
     loader, which skips computing the families when it is false for
     the same reason the parse skip exists: their walks would find
-    rules the ladder then discards.
+    rules the ladder then discards. Load closing the ladder is
+    load-bearing beyond parity: a dependency that resolves but
+    fails to load has no entity table, so its importers' lookups
+    would not find the names that package declares — the `can't
+    load package` diagnostic is what suppresses them.
     """
-  let _rungs: Array[(Bool, Array[CheckDiagnostic] val)] val
+  let _rungs: Array[_Rung] val
     """
-    The staged families past the load rung, in ponyc's pass order —
-    the ladder as one value, so the order exists in one place. Each
-    entry is whether a report there closes the rungs after it, and
-    the family. These report only through `diagnostics`, which walks
-    them in order.
+    The staged families past the load rung — the ladder as one
+    value. Each rung carries the ponyc pass its rule runs in, so
+    the array's order does not affect which families report;
+    `diagnostics` stages them by pass, and nothing else reads them.
     """
 
   new val create(
     packages': Array[PackageData] val,
     load_diags': Array[CheckDiagnostic] val,
     load_failures': Array[UnlocatedDiagnostic] val,
-    rungs': Array[(Bool, Array[CheckDiagnostic] val)] val,
+    rungs': Array[_Rung] val,
     parse_clean': Bool,
     rungs_open': Bool)
   =>
@@ -222,26 +258,28 @@ class val Program
     the way ponyc's passes are — the first pass that errors is the
     last that runs. Parse diagnostics report alone; legality and
     load share the next rung, since ponyc resolves and loads a
-    `use` while it reads the package in. `_rungs` holds the order
-    past that, and whether a report on each rung closes the rungs
-    after it. ponyc's name pass stops reporting at its first real
-    error where the checker reports the whole family. The
-    load-then-nothing-later rule is load-bearing beyond parity: a
-    dependency that resolves but
-    fails to load has no entity table, so its importers' lookups
-    past the load rung would not find the names that package
-    declares — the `can't load package` diagnostic is what
-    suppresses them. The unlocated failures are not here;
-    `failures()` stages them, and they render first.
+    `use` while it reads the package in. Past that, each family
+    carries the ponyc pass its rule runs in: a family that fails
+    its pass suppresses every later pass, and the families of one
+    pass report together. Where ponyc abandons a pass at its first
+    finding, the checker reports the whole family. The unlocated
+    failures are not here; `failures()` stages them, and they
+    render first.
     """
     let with_load = not parse_failed()
-    var open = _rungs_open
     let included = Array[Array[CheckDiagnostic] val]
-    for (closes, family) in _rungs.values() do
-      if open then
-        included.push(family)
-        if closes and (family.size() > 0) then
-          open = false
+    if _rungs_open then
+      // Every pass number is below the sentinel, so "no failing
+      // report" includes every family.
+      var last_reporting_pass: U8 = U8.max_value()
+      for r in _rungs.values() do
+        if r.fails_pass and (r.family.size() > 0) then
+          last_reporting_pass = last_reporting_pass.min(r.pass)
+        end
+      end
+      for r in _rungs.values() do
+        if r.pass <= last_reporting_pass then
+          included.push(r.family)
         end
       end
     end
@@ -625,21 +663,25 @@ class Loader
       end
     end
 
-    // The two private-type families report without failing their
-    // ponyc pass, so they close nothing.
-    let rungs = recover iso Array[(Bool, Array[CheckDiagnostic] val)] end
-    rungs.push((true, recover val consume reuse end))
-    rungs.push((true, recover val consume clash end))
-    rungs.push((false, recover val consume type_private end))
-    rungs.push((true, recover val consume type_names end))
-    rungs.push((true, recover val consume entity_provides end))
-    rungs.push((true, recover val consume refer end))
-    // One ponyc pass is one rung: the three expr-pass families
-    // report together; the last is marked closing though nothing
-    // follows it.
-    rungs.push((false, recover val consume expr_private end))
-    rungs.push((false, recover val consume expr_reuse end))
-    rungs.push((true, recover val consume object_provides end))
+    let rungs = recover iso Array[_Rung] end
+    rungs.push(
+      _Rung(_Pass.scope(), true, recover val consume reuse end))
+    rungs.push(
+      _Rung(_Pass.import(), true, recover val consume clash end))
+    rungs.push(
+      _Rung(_Pass.name(), false, recover val consume type_private end))
+    rungs.push(
+      _Rung(_Pass.name(), true, recover val consume type_names end))
+    rungs.push(
+      _Rung(_Pass.flatten(), true, recover val consume entity_provides end))
+    rungs.push(
+      _Rung(_Pass.refer(), true, recover val consume refer end))
+    rungs.push(
+      _Rung(_Pass.expr(), false, recover val consume expr_private end))
+    rungs.push(
+      _Rung(_Pass.expr(), true, recover val consume expr_reuse end))
+    rungs.push(
+      _Rung(_Pass.expr(), true, recover val consume object_provides end))
 
     Program(
       packages, diags, failures, consume rungs
