@@ -101,12 +101,6 @@ primitive CheckLegality
         Below this element index, an FFI call sits inside a trait or
         interface. Zero when not inside one.
         """
-      var ffi_decl_scope: USize = 0
-        """
-        Below this element index, a parameter belongs to an FFI
-        declaration, which ponyc's check_params never reaches — its
-        one caller checks methods. Zero when not inside one.
-        """
 
       for (element, depth, _, kind, _) in tree.walk() do
         stack.truncate(depth)
@@ -123,12 +117,6 @@ primitive CheckLegality
           _object(d, element)
         elseif kind is NdUseFFI then
           _ffi(d, element, true)
-          ffi_decl_scope = element + (try
-            tree.subtree_size(element)?
-          else
-            _Unreachable()
-            0
-          end)
         elseif kind is NdFFICall then
           _ffi(d, element, false)
           if element < default_method_scope then
@@ -203,15 +191,8 @@ primitive CheckLegality
           | let id: USize =>
             _check_id(d, id, "type parameter" where start_upper = true)
           end
-        elseif kind is NdParam then
-          if element >= ffi_decl_scope then
-            match _id_of(tree, element)
-            | let id: USize =>
-              _check_id(d, id, "parameter"
-                where start_lower = true, allow_underscore = true,
-                  allow_tick = true)
-            end
-          end
+        elseif kind is NdMethod then
+          _method_params(d, element)
         elseif kind is NdLambdaParam then
           match _id_of(tree, element)
           | let id: USize =>
@@ -369,6 +350,32 @@ primitive CheckLegality
           if not after_body then
             d.report(child,
               "a bare lambda cannot specify a receiver capability")
+          end
+        end
+      end
+    end
+
+  fun _method_params(d: _Diags, method: USize) =>
+    """
+    ponyc's check_id_param, attached where ponyc attaches it:
+    check_params' one caller checks a method's parameter list, so a
+    parameter anywhere else — an FFI declaration's — is never
+    checked. Lambda parameters take the rule separately, after the
+    desugar's antecedent substitution.
+    """
+    let tree = d.tree
+    try
+      for child in tree.children(method)? do
+        if tree.kind(child)? is NdParams then
+          for param in tree.children(child)? do
+            if tree.kind(param)? is NdParam then
+              match _id_of(tree, param)
+              | let id: USize =>
+                _check_id(d, id, "parameter"
+                  where start_lower = true, allow_underscore = true,
+                    allow_tick = true)
+              end
+            end
           end
         end
       end

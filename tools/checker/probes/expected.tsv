@@ -108,6 +108,7 @@ packageref_private_fail	fail	can't access a private type from another package
 packageref_type_fail	fail	can't find type 'NoSuchThing' in package 'col'
 param_dontcare_typed_fail	fail	parameter name cannot be "_"
 param_name_fail	fail	parameter name "Bar" must start a-z
+param_object_method_fail	fail	parameter name "Bar" must start a-z
 param_tick_ok	ok	
 parse_error_suppresses_fail	fail	expected a parameter name
 parse_suppresses_failures_fail	fail	expected a closing parenthesis
