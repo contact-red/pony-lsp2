@@ -1,0 +1,4 @@
+Error:
+$DIR/main.pony:4:13: parameter name "Bar" must start a-z
+      fun f(Bar: U8): U8 => 1
+            ^
