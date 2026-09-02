@@ -1,0 +1,8 @@
+Error:
+$DIR/main.pony:3:1: can't reuse name 'create'
+class C
+^
+Error:
+$DIR/main.pony:6:7: can't reuse name 'create'
+  new create(env: Env) => None
+      ^

@@ -1,0 +1,8 @@
+Error:
+$DIR/main.pony:4:1: invalid provides type. Can only be interfaces, traits and intersects of those.
+class User[A] is A
+^
+    Info:
+    $DIR/main.pony:4:18: invalid type here
+    class User[A] is A
+                     ^

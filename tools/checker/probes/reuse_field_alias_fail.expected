@@ -1,0 +1,4 @@
+Error:
+$DIR/main.pony:4:7: can't reuse name 'coll'
+  let coll: U8 = 1
+      ^

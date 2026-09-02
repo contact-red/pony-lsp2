@@ -1,0 +1,8 @@
+Error:
+$DIR/main.pony:3:1: invalid provides type. Can only be interfaces, traits and intersects of those.
+interface I is Bad
+^
+    Info:
+    $DIR/main.pony:3:16: invalid type here
+    interface I is Bad
+                   ^

@@ -1,0 +1,16 @@
+Error:
+$DIR/main.pony:7:10: can't reuse name 'b'
+    with b = Res, b = Res do
+         ^
+    Info:
+    $DIR/main.pony:6:5: previous use of 'b'
+        let b: U32 = 1
+        ^
+Error:
+$DIR/main.pony:7:19: can't reuse name 'b'
+    with b = Res, b = Res do
+                  ^
+    Info:
+    $DIR/main.pony:6:5: previous use of 'b'
+        let b: U32 = 1
+        ^

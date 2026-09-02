@@ -1,0 +1,8 @@
+Error:
+$DIR/main.pony:7:1: invalid provides type. Can only be interfaces, traits and intersects of those.
+class User is Helper2
+^
+    Info:
+    $DIR/main.pony:7:15: invalid type here
+    class User is Helper2
+                  ^

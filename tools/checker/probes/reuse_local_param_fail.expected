@@ -1,0 +1,8 @@
+Error:
+$DIR/main.pony:3:9: can't reuse name 'env'
+    let env = U8(1)
+        ^
+    Info:
+    $DIR/main.pony:2:14: previous use of 'env'
+      new create(env: Env) =>
+                 ^

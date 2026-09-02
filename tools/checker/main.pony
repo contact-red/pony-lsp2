@@ -2,11 +2,22 @@ use "collections"
 use "files"
 use "../../upstream/tools/lib/ponylang/pony_syntax"
 
+class val _Label
+  """
+  A batch case's heading under `--errors`: the case line as the
+  verdict names it, printed before the case's diagnostics.
+  """
+  let text: String val
+  new val create(text': String val) => text = text'
+
 type _Renderable is
-  ((CheckDiagnostic, LineIndex val, (LineIndex val | None)) | String val)
+  ((CheckDiagnostic, LineIndex val, (LineIndex val | None))
+    | String val
+    | _Label)
   """
   One stderr item awaiting `_render_chunk`: a diagnostic with the
-  indexes that place it, or a message already in its final form.
+  indexes that place it, a message already in its final form, or a
+  case heading.
   """
 
 actor Main
@@ -23,13 +34,15 @@ actor Main
 
   A rejection means a parse diagnostic, over-deep nesting, a
   `use`-level legality or resolution error, one of the ported
-  syntax-pass legality rules, or an unresolved name. Diagnostics are
+  syntax-pass legality rules, a name reuse, an import clash, an
+  invalid provides clause, or an unresolved name. Diagnostics are
   staged as in ponyc, whose later passes do not run after an error;
   `Program.diagnostics` holds the rule.
 
-  Both loops run in chunks of behaviours rather than one call, so a
-  long batch or a diagnostic-heavy file is collected as it goes instead
-  of holding every allocation to the end.
+  Both loops run in chunks of behaviours rather than one call, so
+  the render queue of a long batch or a diagnostic-heavy file is
+  collected as it goes instead of holding every allocation to the
+  end; the loader's per-package caches live for the whole run.
   """
   let _env: Env
   var _loader: (Loader | None) = None
@@ -43,7 +56,7 @@ actor Main
     _env = env
     var batch: (String val | None) = None
     var target: (String val | None) = None
-    var verbose = false
+    var files = false
     var errors = false
     let roots = recover iso Array[String val] end
 
@@ -106,8 +119,8 @@ actor Main
           env.exitcode(1)
           return
         end
-      elseif arg == "--verbose" then
-        verbose = true
+      elseif arg == "--files" then
+        files = true
       elseif arg == "--errors" then
         errors = true
       elseif arg.compare_sub("--", 2) is Equal then
@@ -140,8 +153,13 @@ actor Main
       env.exitcode(1)
       return
     end
+    if errors and (batch is None) then
+      env.err.print("--errors needs --batch")
+      env.exitcode(1)
+      return
+    end
 
-    let loader = Loader(FileAuth(env.root), consume roots, verbose)
+    let loader = Loader(FileAuth(env.root), consume roots, files)
     _loader = loader
 
     match batch
@@ -160,12 +178,15 @@ actor Main
 
   fun _usage(out: OutStream) =>
     out.print(
-      "usage: checker <package-dir> [--path=ROOT ...] [--verbose]\n" +
-      "       checker --batch=<cases-file> [--path=ROOT ...] [--verbose]" +
-      " [--errors]\n" +
-      "--verbose reports each file as it is opened.\n" +
-      "--errors renders each fail or load-failed batch case's" +
-      " diagnostics; single mode always renders them.\n" +
+      "usage: checker <package-dir> [--path=ROOT ...] [--files]\n" +
+      "       checker --batch=<cases-file> [--path=ROOT ...]\n" +
+      "               [--files] [--errors]\n" +
+      "--batch and --path also take a separate argument:\n" +
+      "  --batch <cases-file>, --path ROOT.\n" +
+      "--files reports each file as it is opened.\n" +
+      "--errors renders each fail or load-failed batch case's\n" +
+      "  diagnostics under a <case>: heading; single mode always\n" +
+      "  renders diagnostics.\n" +
       "PONYPATH entries are search roots too, after every --path.")
 
   fun _count(
@@ -201,19 +222,19 @@ actor Main
         end
       end
     end
+    // Every Info-bearing family names a file inside the loaded
+    // program, so a miss is a logic bug, not a render choice.
+    _Unreachable()
     None
 
   fun ref _queue_program(
     program: Program,
     groups: Array[(FileData, Array[CheckDiagnostic])] box)
-    : Bool
   =>
     """
     Queue everything the program reports — the staged load failures,
     then each file's diagnostics — for `_render_chunk` to render.
-    Returns true when anything was queued.
     """
-    let before = _render_queue.size()
     for f in program.failures().values() do
       _render_queue.push(f.string())
     end
@@ -223,8 +244,9 @@ actor Main
         let index: LineIndex val = LineIndex(file.tree.source, Utf8)
         indexes(file.path) = index
         for d in diags.values() do
-          // An Info naming another file — the package-docstring
-          // rule — renders against that file's own index.
+          // An Info naming another file — a cross-file previous
+          // use, an import clash, or the package-docstring rule —
+          // renders against that file's own index.
           let info_index =
             match d.info
             | let info: CheckDiagnostic if info.file != d.file =>
@@ -236,7 +258,6 @@ actor Main
         end
       end
     end
-    _render_queue.size() > before
 
   fun ref _run_single(loader: Loader ref, dir: String val) =>
     match loader.load(dir)
@@ -244,7 +265,9 @@ actor Main
       _Stderr.print("Error:\n" + e.string())
       _env.exitcode(255)
     | let program: Program =>
-      if _queue_program(program, program.diagnostics()) then
+      let groups = program.diagnostics()
+      if _count(program, groups) > 0 then
+        _queue_program(program, groups)
         _env.exitcode(255)
         _render_chunk()
       else
@@ -268,6 +291,8 @@ actor Main
           _Stderr.print("Error:\n" + RenderDiag(d, index, info_index))
         | let s: String val =>
           _Stderr.print("Error:\n" + s)
+        | let l: _Label =>
+          _Stderr.print(l.text + ":")
         end
       end
       _render_index = _render_index + 1
@@ -293,6 +318,32 @@ actor Main
         _env.exitcode(1)
         return
       end
+    // Validate every line before any case runs: a C0 control or
+    // DEL would corrupt the tab-separated verdict record, and every
+    // usage error fails before work starts. A trailing carriage
+    // return is the line ending, not the name.
+    var line_no = USize(0)
+    for line in cases.values() do
+      line_no = line_no + 1
+      var i: USize = 0
+      let limit =
+        if try line(line.size() - 1)? == '\r' else false end then
+          line.size() - 1
+        else
+          line.size()
+        end
+      while i < limit do
+        let byte = try line(i)? else _Unreachable(); ' ' end
+        if (byte < ' ') or (byte == 0x7F) then
+          _env.err.print(
+            "batch list holds a control character on line " +
+              line_no.string())
+          _env.exitcode(1)
+          return
+        end
+        i = i + 1
+      end
+    end
     _cases = cases
     _batch_chunk()
 
@@ -332,6 +383,7 @@ actor Main
         match loader.load(case_dir)
         | let e: LoadError =>
           if _batch_errors then
+            _render_queue.push(_Label(case_dir))
             _render_queue.push(e.string())
           end
           "load-failed"
@@ -341,6 +393,7 @@ actor Main
             "ok"
           else
             if _batch_errors then
+              _render_queue.push(_Label(case_dir))
               _queue_program(program, groups)
             end
             "fail"

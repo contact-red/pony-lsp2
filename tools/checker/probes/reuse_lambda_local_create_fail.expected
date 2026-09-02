@@ -1,0 +1,8 @@
+Error:
+$DIR/main.pony:4:11: can't reuse name 'create'
+      let create: U8 = 1
+          ^
+    Info:
+    $DIR/main.pony:3:13: previous use of 'create'
+        let g = {(): U8 =>
+                ^

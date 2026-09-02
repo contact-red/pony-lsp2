@@ -4,35 +4,44 @@ use "../../upstream/tools/lib/ponylang/pony_syntax"
 
 class val _PackageImports
   """
-  How one package's `use` declarations resolved: the aliased ones by
-  alias, the bare package ones in written order, both as canonical
-  directories. The loader resolves them; name resolution reads them
-  here to search the packages ponyc would.
+  How one file's `use` declarations resolved: the aliased ones by
+  alias, the bare package ones in written order, and the implicit
+  builtin import — written nowhere, so it is its own field, searched
+  after the opens as ponyc searches it. The loader resolves them;
+  name resolution reads them here to search the packages ponyc
+  would.
   """
   let aliases: Map[String, String val] val
     """Alias to canonical directory."""
-  let opens: Array[String val] val
-    """Unaliased `use` targets, then builtin, in search order."""
+  let opens: Array[_OpenImport] val
+    """Unaliased `use` targets, in search order."""
+  let builtin: String val
+    """The builtin package's canonical directory."""
 
   new val create(
     aliases': Map[String, String val] val,
-    opens': Array[String val] val)
+    opens': Array[_OpenImport] val,
+    builtin': String val)
   =>
     aliases = aliases'
     opens = opens'
+    builtin = builtin'
 
 class val _EntityInfo
   """
-  One entity's member names, and the names in its provides list,
-  which member lookups follow.
+  One entity: its declaring keyword, its member names, and the names
+  in its provides list, which member lookups follow.
   """
+  let keyword: SyntaxKind
   let members: Array[String val] val
   let provides: Array[String val] val
 
   new val create(
+    keyword': SyntaxKind,
     members': Array[String val] val,
     provides': Array[String val] val)
   =>
+    keyword = keyword'
     members = members'
     provides = provides'
 
@@ -110,7 +119,7 @@ primitive _ProjectEntities
     if (keyword is TkActor) and (name == "Main") then
       members.push("runtime_override_defaults")
     end
-    (name, _EntityInfo(_freeze(members), _freeze(provides)))
+    (name, _EntityInfo(keyword, _freeze(members), _freeze(provides)))
 
   fun _has_constructor(tree: SyntaxTree val, members: USize): Bool =>
     try
@@ -247,9 +256,6 @@ class _Namespace
     end
     false
 
-  fun is_alias(name: String val): Bool =>
-    _imports.aliases.contains(name)
-
   fun type_name(name: String val): Bool =>
     """
     Whether a bare type name resolves: own package, then each open
@@ -263,43 +269,33 @@ class _Namespace
         return true
       end
     end
-    if _importable(name) then
-      for dir in _imports.opens.values() do
+    if _Importable(name) then
+      for open in _imports.opens.values() do
         try
-          if _entities(dir)?.contains(name) then
+          if _entities(open.dir)?.contains(name) then
             return true
           end
+        end
+      end
+      try
+        if _entities(_imports.builtin)?.contains(name) then
+          return true
         end
       end
     end
     false
 
-  fun _importable(name: String val): Bool =>
-    """
-    Whether an import can supply `name`: ponyc's import pass refuses
-    private names and `Main`.
-    """
-    (try name(0)? != '_' else false end) and (name != "Main")
+  fun alias_package(name: String val): (String val | None) =>
+    """The directory a `use` alias names; None for no such alias."""
+    try _imports.aliases(name)? else None end
 
-  fun qualified_type(alias: String val, name: String val)
-    : (Bool | None)
-  =>
+  fun package_has(dir: String val, name: String val): Bool =>
     """
-    Whether `alias.name` resolves. `None` when the alias itself is
-    unknown — a package error, not a definition error.
+    Whether the package at `dir` can supply `name`. A package with no
+    entity table cannot be proved to lack a name, so it holds
+    everything.
     """
-    try
-      let dir = _imports.aliases(alias)?
-      try
-        _entities(dir)?.contains(name)
-      else
-        // A known alias whose package has no entity table cannot be
-        // proved to lack the name.
-        true
-      end
-    else
-      None
-    end
+    try _entities(dir)?.contains(name) else true end
 
   fun member(enclosing: Array[String val] box, name: String val): Bool =>
     """
@@ -350,6 +346,16 @@ class _Namespace
     end
     false
 
+  fun entity_keyword(name: String val): (SyntaxKind | None) =>
+    """
+    The declaring keyword of the entity this file's namespace
+    resolves `name` to, or None when nothing in scope declares it.
+    """
+    match _entity_in_scope(name)
+    | (let _: String val, let info: _EntityInfo) => info.keyword
+    | None => None
+    end
+
   fun _entity_in_scope(name: String val)
     : ((String val, _EntityInfo) | None)
   =>
@@ -360,11 +366,15 @@ class _Namespace
     try
       return (_own, _entities(_own)?(name)?)
     end
-    if _importable(name) then
-      for dir in _imports.opens.values() do
+    if _Importable(name) then
+      for open in _imports.opens.values() do
         try
-          return (dir, _entities(dir)?(name)?)
+          return (open.dir, _entities(open.dir)?(name)?)
         end
+      end
+      try
+        return
+          (_imports.builtin, _entities(_imports.builtin)?(name)?)
       end
     end
     None
@@ -379,9 +389,9 @@ class _Namespace
     try
       return (ctx, _entities(ctx)?(name)?)
     end
-    if _importable(name) then
+    if _Importable(name) then
       try
-        let builtin = _imports.opens(_imports.opens.size() - 1)?
+        let builtin = _imports.builtin
         return (builtin, _entities(builtin)?(name)?)
       end
     end
@@ -395,7 +405,11 @@ class _Namespace
   =>
     """
     ponyc's alternate-name suggestion: the same name with its leading
-    underscore toggled, else one differing only by case.
+    underscore toggled, else one differing only by case. The case
+    search is partial: it sweeps this file's bindings, the package's
+    entities and the open imports', but not the members of enclosing
+    entities, which ponyc's symbol tables also hold — a member
+    differing only by case goes unsuggested.
     """
     let toggled: String val =
       if try name(0)? == '_' else false end then
@@ -415,7 +429,7 @@ class _Namespace
     // and a type-shaped one only types — type parameters included.
     // Pony forbids two names differing only by case in one scope, so
     // the first match is the only match.
-    if _type_shaped(name) then
+    if _Fold.type_shaped(name) then
       for candidate in _file.facts.bindings.values() do
         if (candidate.kind is BindTypeParam) and
           _case_match(candidate.name, name) and candidate.covers(offset)
@@ -426,10 +440,13 @@ class _Namespace
       match _case_entity(_own, name)
       | let n: String val => return n
       end
-      for dir in _imports.opens.values() do
-        match _case_entity(dir, name)
+      for open in _imports.opens.values() do
+        match _case_entity(open.dir, name)
         | let n: String val => return n
         end
+      end
+      match _case_entity(_imports.builtin, name)
+      | let n: String val => return n
       end
       return None
     end
@@ -441,14 +458,6 @@ class _Namespace
       end
     end
     None
-
-  fun _type_shaped(name: String val): Bool =>
-    var i: USize = 0
-    while try name(i)? == '_' else false end do
-      i = i + 1
-    end
-    let c = try name(i)? else return false end
-    (c >= 'A') and (c <= 'Z')
 
   fun _case_match(candidate: String val, written: String val): Bool =>
     """
@@ -477,13 +486,34 @@ class _Namespace
   =>
     try
       for (n, _) in _entities(dir)?.pairs() do
-        if ((dir == _own) or _importable(n)) and _case_match(n, written)
+        if ((dir == _own) or _Importable(n)) and _case_match(n, written)
         then
           return n
         end
       end
     end
     None
+
+class val _NameFamilies
+  """
+  `CheckNames`' four families, each named for its rung, so a caller
+  cannot transpose two of the same type silently.
+  """
+  let type_names: Array[CheckDiagnostic] val
+  let type_private: Array[CheckDiagnostic] val
+  let refer: Array[CheckDiagnostic] val
+  let expr_private: Array[CheckDiagnostic] val
+
+  new val create(
+    type_names': Array[CheckDiagnostic] val,
+    type_private': Array[CheckDiagnostic] val,
+    refer': Array[CheckDiagnostic] val,
+    expr_private': Array[CheckDiagnostic] val)
+  =>
+    type_names = type_names'
+    type_private = type_private'
+    refer = refer'
+    expr_private = expr_private'
 
 primitive CheckNames
   """
@@ -494,15 +524,26 @@ primitive CheckNames
   ponyc's — `can't find declaration` for references, with its
   alternate-name suggestion, and `can't find definition` for types.
   Lookups fail open, as `_Namespace` states.
+
+  The rules sit on four ladder rungs across three ponyc passes, so
+  `apply` returns four families. An unresolvable nominal type is
+  the name pass, before flatten. The private-type check on a
+  nominal is that same pass reporting without failing it, so it
+  closes nothing. A reference or member that does not resolve is
+  refer, after flatten. The private-type check on a qualified
+  expression is the expr pass, last of all.
   """
   fun apply(
     file: FileData,
     own: String val,
     imports: _PackageImports,
     entities: Map[String, Map[String, _EntityInfo] val] box)
-    : Array[CheckDiagnostic] val
+    : _NameFamilies
   =>
-    let out = Array[CheckDiagnostic]
+    let type_names = Array[CheckDiagnostic]
+    let type_private = Array[CheckDiagnostic]
+    let expr_private = Array[CheckDiagnostic]
+    let refer = Array[CheckDiagnostic]
     let ns = _Namespace(file, own, imports, entities)
     let tree = file.tree
     let at = file.facts.offsets()
@@ -529,20 +570,20 @@ primitive CheckNames
       if not skipped then
         match kind
         | NdRef =>
-          _reference(ns, tree, at, element, stack, out, file.path)
+          _reference(ns, tree, at, element, stack, refer, file.path)
         | NdDot =>
-          _this_dot(ns, tree, at, element, stack, out, file.path)
+          _this_dot(ns, tree, at, element, stack, refer, expr_private,
+            file.path)
         | NdNominal =>
-          _nominal(ns, tree, at, element, stack, out, file.path)
+          _nominal(ns, tree, at, element, stack, type_names,
+            type_private, file.path)
         end
       end
       stack.push((element, kind))
     end
-    let frozen = recover iso Array[CheckDiagnostic](out.size()) end
-    for d in out.values() do
-      frozen.push(d)
-    end
-    consume frozen
+    _NameFamilies(
+      _FreezeDiags(type_names), _FreezeDiags(type_private),
+      _FreezeDiags(refer), _FreezeDiags(expr_private))
 
   fun _flag_regions(tree: SyntaxTree val): Array[(USize, USize)] =>
     """
@@ -755,7 +796,7 @@ primitive CheckNames
     if _under_lambda(stack) then
       return
     end
-    if ns.is_alias(name) then
+    if ns.alias_package(name) isnt None then
       // ponyc's refer pass allows a package reference only as the
       // left side of a dot.
       if _under_dot(stack) then
@@ -800,6 +841,7 @@ primitive CheckNames
     element: USize,
     stack: Array[(USize, SyntaxKind)] box,
     out: Array[CheckDiagnostic] ref,
+    expr_private: Array[CheckDiagnostic] ref,
     path: String val)
   =>
     """
@@ -809,24 +851,26 @@ primitive CheckNames
     """
     try
       var this_left = false
-      var alias_left: (String val | None) = None
+      var alias_left: ((String val, String val) | None) = None
       var dot: (USize | None) = None
       for child in tree.children(element)? do
         match tree.kind(child)?
         | NdThis => this_left = true
         | NdRef =>
           let left = _ref_name(tree, at, child)
-          if ns.is_alias(left) and
-            (not ns.binding_covers(left, _offset(at, child)))
-          then
-            alias_left = left
+          match ns.alias_package(left)
+          | let found: String val =>
+            if not ns.binding_covers(left, _offset(at, child)) then
+              alias_left = (left, found)
+            end
           end
         | TkDot => dot = child
         | TkWhitespace | TkLineComment | TkNestedComment => None
         | TkId =>
           match alias_left
-          | let alias: String val =>
-            _package_member(ns, tree, at, alias, child, dot, out, path)
+          | (let alias: String val, let found: String val) =>
+            _package_member(ns, tree, at, alias, found, child, dot,
+              out, expr_private, path)
             return
           end
           if this_left then
@@ -879,36 +923,35 @@ primitive CheckNames
     tree: SyntaxTree val,
     at: Array[USize] val,
     alias: String val,
+    dir: String val,
     id: USize,
     dot: (USize | None),
     out: Array[CheckDiagnostic] ref,
+    expr_private: Array[CheckDiagnostic] ref,
     path: String val)
   =>
     """
-    ponyc's `refer_packageref_dot`: the name after a package alias
-    must be a type the package holds — a private one is refused at
-    the dot, a missing one at the name.
+    The name after a package alias must be a type the package holds —
+    a missing one is refused at the name by ponyc's refer pass, a
+    private one at the dot by its expr pass, a rung later.
     """
     let written = _text(tree, at, id)
-    match ns.qualified_type(alias, written)
-    | false =>
-      out.push(
-        CheckDiagnostic(path, _offset(at, id),
-          "can't find type '" + written + "' in package '" + alias +
-            "'"))
-    | true =>
+    if ns.package_has(dir, written) then
       if try written(0)? == '_' else false end then
         let where_at =
           match dot
           | let dt: USize => dt
           | None => id
           end
-        out.push(
+        expr_private.push(
           CheckDiagnostic(path, _offset(at, where_at),
             "can't access a private type from another package"))
       end
-    | None =>
-      _Unreachable()
+    else
+      out.push(
+        CheckDiagnostic(path, _offset(at, id),
+          "can't find type '" + written + "' in package '" + alias +
+            "'"))
     end
 
   fun _nominal(
@@ -917,7 +960,8 @@ primitive CheckNames
     at: Array[USize] val,
     element: USize,
     stack: Array[(USize, SyntaxKind)] box,
-    out: Array[CheckDiagnostic] ref,
+    type_names: Array[CheckDiagnostic] ref,
+    type_private: Array[CheckDiagnostic] ref,
     path: String val)
   =>
     var qualifier: (USize | None) = None
@@ -946,35 +990,35 @@ primitive CheckNames
       // ponyc's order: the package, then the `_` rule, then the
       // definition, then the private check on what it found.
       let alias = _text(tree, at, q)
-      if not ns.is_alias(alias) then
-        out.push(
-          CheckDiagnostic(path, _offset(at, q),
-            "can't find package '" + alias + "'"))
-        return
-      end
+      let dir =
+        match ns.alias_package(alias)
+        | let found: String val => found
+        | None =>
+          type_names.push(
+            CheckDiagnostic(path, _offset(at, q),
+              "can't find package '" + alias + "'"))
+          return
+        end
       if written == "_" then
-        out.push(
-          CheckDiagnostic(path, _offset(at, q),
-            "'_' cannot be in a package"))
+        // The `'_' cannot be in a package` diagnostic is the syntax
+        // pass's, already ported in legality.pony; that rung closes
+        // the ladder before this one could render a copy.
         return
       end
-      match ns.qualified_type(alias, written)
-      | false =>
-        out.push(
-          CheckDiagnostic(path, offset, _def_message(written)))
-      | None =>
-        _Unreachable()
-      | true =>
+      if ns.package_has(dir, written) then
         if try written(0)? == '_' else false end then
-          out.push(
+          type_private.push(
             CheckDiagnostic(path, offset,
               "can't access a private type from another package"))
         end
+      else
+        type_names.push(
+          CheckDiagnostic(path, offset, _def_message(written)))
       end
     | None =>
       if written == "_" then
         if not _as_tuple_dontcare(stack) then
-          out.push(
+          type_names.push(
             CheckDiagnostic(path, offset,
               "can't use '_' as a type name"))
         end
@@ -983,7 +1027,8 @@ primitive CheckNames
       if ns.binding_covers(written, offset) or ns.type_name(written) then
         return
       end
-      out.push(CheckDiagnostic(path, offset, _def_message(written)))
+      type_names.push(
+        CheckDiagnostic(path, offset, _def_message(written)))
     end
 
   fun _def_message(written: String val): String val =>

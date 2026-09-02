@@ -1,0 +1,6 @@
+actor Main
+  new create(env: Env) => None
+
+primitive Thing
+
+primitive THING

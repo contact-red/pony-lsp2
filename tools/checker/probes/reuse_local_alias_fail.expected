@@ -1,0 +1,4 @@
+Error:
+$DIR/main.pony:5:9: can't reuse name 'col'
+    let col = U8(1)
+        ^

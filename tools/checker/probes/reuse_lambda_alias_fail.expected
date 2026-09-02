@@ -1,0 +1,4 @@
+Error:
+$DIR/main.pony:5:15: can't reuse name 'col'
+    let f = {(col: U8): U8 => col }
+              ^

@@ -1,0 +1,8 @@
+Error:
+$DIR/main.pony:6:9: can't reuse name 'a'
+    let a = U8(2)
+        ^
+    Info:
+    $DIR/main.pony:5:5: previous use of 'a'
+        let a = U8(1)
+        ^

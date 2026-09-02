@@ -1,0 +1,8 @@
+Error:
+$DIR/a_late.pony:1:9: can't reuse name 'Thing'
+class C[Thing]
+        ^
+    Info:
+    $DIR/m_mid.pony:1:1: previous use of 'Thing'
+    primitive Thing
+    ^

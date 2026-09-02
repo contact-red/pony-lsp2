@@ -74,6 +74,26 @@ class val Binding
     _name_from = name_from'
     _name_to = name_to'
 
+  fun name_from(): USize =>
+    """
+    The identifier's byte offset -- the position a diagnostic about
+    the declaration reports, and a key a consumer can join tree
+    offsets against.
+    """
+    _name_from
+
+  fun scope_from(): USize =>
+    """
+    Where the scope begins, in bytes -- `covers`' lower bound.
+    """
+    _from
+
+  fun scope_to(): USize =>
+    """
+    One past the scope's end, in bytes.
+    """
+    _to
+
   fun covers(byte: USize): Bool =>
     """
     Whether a use at this byte offset could refer to this binding.

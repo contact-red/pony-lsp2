@@ -1,0 +1,16 @@
+Error:
+$DIR/main.pony:4:13: invalid provides type. Can only be interfaces, traits and intersects of those.
+    let o = object is K end
+            ^
+    Info:
+    $DIR/main.pony:4:23: invalid type here
+        let o = object is K end
+                          ^
+Error:
+$DIR/main.pony:5:29: can't reuse name 'apply'
+    let g = {(): U32 => let apply = U32(1); apply }
+                            ^
+    Info:
+    $DIR/main.pony:5:13: previous use of 'apply'
+        let g = {(): U32 => let apply = U32(1); apply }
+                ^

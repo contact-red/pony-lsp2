@@ -1,0 +1,8 @@
+Error:
+$DIR/main.pony:4:11: can't reuse name 'apply'
+      let apply: U8 = 2
+          ^
+    Info:
+    $DIR/main.pony:3:21: previous use of 'apply'
+        let f = {()(g = {(): U8 =>
+                        ^

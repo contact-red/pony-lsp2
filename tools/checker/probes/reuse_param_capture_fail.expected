@@ -1,0 +1,8 @@
+Error:
+$DIR/main.pony:4:15: can't reuse name 'x'
+    let f = {(x: U8)(x = y): U8 => x }
+              ^
+    Info:
+    $DIR/main.pony:4:22: previous use of 'x'
+        let f = {(x: U8)(x = y): U8 => x }
+                         ^

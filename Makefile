@@ -17,7 +17,8 @@ PATHS      := --path $(BRIDGE) --path $(LIBS) --path $(PONYC_LIB)
 
 all: test
 
-test: grammar-guard syntax-test lsp-test checker-probes checker-stdlib
+test: grammar-guard syntax-test lsp-test checker-probes \
+  checker-probes-debug checker-stdlib
 
 # Every grammar recursion cycle must contain a depth-guarded rule; a
 # rule that opens an unguarded cycle fails here instead of crashing on
@@ -133,6 +134,20 @@ checker:
 checker-probes: checker
 	tools/checker/probes/run.sh ./build/checker "$(PONYC_ROOT)/packages"
 
+# The ifdef-debug ordering assertions compile out of a release
+# build; this runs every fixture through a debug build in one batch
+# so the assertions are evaluated by `make test`.
+checker-probes-debug:
+	ponyc -d -b checker-debug -o build tools/checker
+	tools/checker/probes/debug_verdicts.sh ./build/checker-debug \
+	  "$(PONYC_ROOT)/packages"
+
+# The pins against ponyc itself — the column oracle's rule over the
+# probe suite. Needs the dev ponyc binary, so it is not in `test`.
+probe-parity:
+	tools/checker/probes/parity.sh \
+	  "$(PONYC_ROOT)/build/release/ponyc" "$(PONYC_ROOT)/packages"
+
 # Every package in ponyc's standard library must check clean: the gate the
 # corpus cannot provide, because no corpus case uses a stdlib package
 # beyond builtin.
@@ -160,20 +175,33 @@ checker-stdlib: checker
 	  echo "stdlib: all packages clean"; \
 	fi
 
+# A stale reach file silently narrows the oracles — they iterate its
+# rows — so freshness is checked, not just existence: every manifest
+# case must have a reach row.
+define REACH_FRESH
+	@test -f $(CORPUS_CASES)/reach.tsv || \
+	  { echo "no reach.tsv: run 'make pass-reach' once first"; exit 1; }
+	@if test -f $(CORPUS_CASES)/manifest.tsv; then \
+	  awk -F'\t' 'NR==FNR {r[$$1 SUBSEP $$2]=1; next} \
+	    !($$1 SUBSEP $$2 in r) {m++} \
+	    END {if (m) {print m " manifest cases absent from reach.tsv:" \
+	      " run make pass-reach"; exit 1}}' \
+	    $(CORPUS_CASES)/reach.tsv $(CORPUS_CASES)/manifest.tsv; \
+	fi
+endef
+
 # Reasons, not just verdicts: an agreed rejection whose manifest row
 # carries ponyc's expected message must emit that message, so a case
 # rejected for the wrong reason fails instead of scoring as agreement.
 message-oracle: checker
-	@test -f $(CORPUS_CASES)/reach.tsv || \
-	  { echo "no reach.tsv: run 'make pass-reach' once first"; exit 1; }
+	$(REACH_FRESH)
 	python3 tools/corpus/message_oracle.py $(CORPUS_CASES) \
 	  ./build/checker "$(PONYC_ROOT)/packages"
 
 # Positions, not just verdicts: wherever the checker and ponyc emit the
 # same message on a reject case, the line and column must match.
 column-oracle: checker
-	@test -f $(CORPUS_CASES)/reach.tsv || \
-	  { echo "no reach.tsv: run 'make pass-reach' once first"; exit 1; }
+	$(REACH_FRESH)
 	python3 tools/corpus/column_oracle.py $(CORPUS_CASES) \
 	  ./build/checker "$(PONYC_ROOT)/packages"
 

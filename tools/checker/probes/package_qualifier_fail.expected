@@ -2,7 +2,3 @@ Error:
 $DIR/main.pony:3:12: can't find package 'col'
     let x: col.SetIs[U8] = col.SetIs[U8]
            ^
-Error:
-$DIR/main.pony:3:28: can't find declaration of 'col'
-    let x: col.SetIs[U8] = col.SetIs[U8]
-                           ^

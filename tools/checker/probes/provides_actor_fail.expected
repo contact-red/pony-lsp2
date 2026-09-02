@@ -1,0 +1,8 @@
+Error:
+$DIR/main.pony:6:1: invalid provides type. Can only be interfaces, traits and intersects of those.
+class User is Worker
+^
+    Info:
+    $DIR/main.pony:6:15: invalid type here
+    class User is Worker
+                  ^

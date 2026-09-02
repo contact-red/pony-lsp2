@@ -341,18 +341,33 @@ primitive _OpensScope
   the desugaring, and this tree is not desugared. So the ones the
   desugaring would have produced are named here instead.
 
+  The list accounts for every member of ponyc's `SCOPE()` set three
+  ways: a direct kind (`NdModule`, `NdClassDef`, `NdMethod`,
+  `NdCase`, `NdUseFFI`, `NdDefaultArg`); coverage through `NdSeq`,
+  since every conditional or loop body ponyc scopes is a sequence
+  here; and the five desugar-derived kinds above. `NdSeq` is coarser
+  than ponyc's grammar — its scope-free `rawseq` positions are the
+  recorded fail-open gap. A consumer that combines these scope
+  spans with its own walk of the same rule must keep its
+  scope-opener list equal to this one; a kind missing on either
+  side moves where that side ends a binding's scope.
+
+  `NdDefaultArg` is easy to miss: ponyc's grammar marks a
+  parameter's default value `SCOPE()`, so a local declared there is
+  invisible to the method body.
+
   `NdUseFFI` is on ponyc's list and is easy to miss, because an FFI
   declaration does not look like a scope. It has to be one: the standard
-  library declares thirty `use @pony_asio_event_*` in one file, each with a
-  parameter named `event`, and without a scope each one they would all be
-  visible over the whole file and collide.
+  library declares thirty `use @pony_asio_event_*` in one file, each
+  with a parameter named `event`, and without a scope those
+  parameters would all be visible over the whole file and collide.
   """
   fun apply(kind: SyntaxKind): Bool =>
     match kind
     | NdModule | NdClassDef | NdObject | NdMethod
     | NdSeq | NdFor | NdWith | NdCase
     | NdLambda | NdBareLambda
-    | NdUseFFI => true
+    | NdUseFFI | NdDefaultArg => true
     else
       false
     end
@@ -414,7 +429,10 @@ primitive _Bindings
 
   One walk, carrying a stack of open scopes. A binding belongs to the
   innermost scope enclosing it, and no binding node is itself a scope, so
-  the top of the stack is always the right one.
+  the top of the stack is the right one -- except for a local's end,
+  which `_local_end` finds by walking outward past the sequences
+  that groups, tuples and `with` elements wrap, since those are not
+  scopes to ponyc.
   """
   fun apply(
     tree: SyntaxTree val,
@@ -428,8 +446,23 @@ primitive _Bindings
       let emit = _Emitter(tree, index, offsets, out)
 
       // depth, where the scope starts, where its bindings become visible,
-      // and where it ends.
-      let scopes = Array[(USize, USize, USize, USize)]
+      // where it ends, and whether it is a sequence a group, a
+      // tuple or a `with` element wraps (no scope to ponyc). A flag
+      // rather than the kind itself: ponyc 0.69.1 hangs
+      // type-checking an array of tuples that carries the full kind
+      // union.
+      let scopes = Array[(USize, USize, USize, USize, Bool)]
+      // Whether the element at each depth of the walk so far wraps
+      // its sequences without scoping them -- a group, a tuple, or
+      // a `with` element, whose initialiser ponyc's desugar lifts
+      // out of the element. The parent of the current element is
+      // one level up. A consumer that combines these scope spans
+      // with its own walk of the same rule must keep its
+      // transparent-wrapper list equal to this one; if the two
+      // lists diverge, the two sides compute different scope spans
+      // for the same node, and a use of the local resolves at the
+      // wrong site or not at all.
+      let group_at = Array[Bool]
 
       for (element, depth, at, kind, width) in tree.walk() do
         while
@@ -437,6 +470,13 @@ primitive _Bindings
         do
           try scopes.pop()? end
         end
+        group_at.truncate(depth)
+        group_at.push(
+          match kind
+          | NdGrouped | NdTuple | NdWithElem => true
+          else
+            false
+          end)
 
         if _OpensScope(kind) then
           let body =
@@ -445,12 +485,16 @@ primitive _Bindings
             else
               at
             end
-          scopes.push((depth, at, body, at + width))
+          let in_group =
+            try (depth > 0) and group_at(depth - 1)? else false end
+          scopes.push((depth, at, body, at + width,
+            (kind is NdSeq) and in_group))
         end
 
         (let scope_from, let body_from, let scope_to) =
           try
-            (let _, let s, let b, let e) = scopes(scopes.size() - 1)?
+            (let _, let s, let b, let e, let _: Bool) =
+              scopes(scopes.size() - 1)?
             (s, b, e)
           else
             continue
@@ -460,8 +504,13 @@ primitive _Bindings
         | NdLocal =>
           // Visible from where it is written. Pony rejects a use before
           // the declaration, so starting the scope earlier would resolve a
-          // name the compiler will not.
-          emit.one(element, BindLocal, at, scope_to)
+          // name the compiler will not. Where the scope ends is
+          // `_local_end`'s rule.
+          emit.one(
+            element,
+            BindLocal,
+            at,
+            _local_end(scopes, scope_to))
         | NdParam | NdLambdaParam | NdLambdaCapture =>
           emit.one(element, BindParam, body_from, scope_to)
         | NdField =>
@@ -475,6 +524,44 @@ primitive _Bindings
 
       out
     end
+
+  fun _local_end(
+    scopes: Array[(USize, USize, USize, USize, Bool)] box,
+    scope_to: USize)
+    : USize
+  =>
+    """
+    Where a local's scope ends: the end of the nearest enclosing
+    scope that is not a sequence wrapped by a group, a tuple or a
+    `with` element. Those are not scopes to ponyc -- its paren rule
+    opens none, its tuple-assignment sugar rewrites each element
+    into the enclosing block, and its `with` sugar moves an
+    element's initialiser out beside the `with`. The walk outward
+    stops at the `with` itself, so an initialiser's local ends
+    there, short of where ponyc moves it, and two elements'
+    initialisers declaring one name are not compared at all; and ponyc's grammar
+    writes scope-free sequences in more positions -- call
+    arguments, array elements, conditions, iterators -- which still
+    count as scopes here, so a local declared in one ends earlier
+    than ponyc would end it. A pattern capture's nearest such scope
+    is its case -- a case body is its own sequence scope below it
+    -- so a capture lands in the case's scope and its end is the
+    case's end.
+    """
+    var i = scopes.size()
+    while i > 0 do
+      i = i - 1
+      try
+        (let _, let _, let _, let e, let transparent) = scopes(i)?
+        if transparent then
+          continue
+        end
+        return e
+      else
+        return scope_to
+      end
+    end
+    scope_to
 
 class _Emitter
   """

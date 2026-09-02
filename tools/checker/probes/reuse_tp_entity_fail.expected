@@ -1,0 +1,8 @@
+Error:
+$DIR/main.pony:6:9: can't reuse name 'B'
+class A[B]
+        ^
+    Info:
+    $DIR/main.pony:4:1: previous use of 'B'
+    trait B
+    ^

@@ -13,10 +13,12 @@ policy decisions the loop surfaced — loader confinement and
 guard-versus-shortcut divergence — are decided by Red and recorded where
 they arise.
 
-Slices 0 and 1 are built, in `tools/checker`; the slice entries under
-"The first slice" record what was built and where it diverged from
-this sketch. Claims marked *unverified* are exactly that; a complete
-list is at the end. Measurements cited by name live in
+Slices 0 and 1 are built, with the reuse, import-clash and
+invalid-provides rules after them, in `tools/checker`; the entries
+under "The first slice" record what was built and where it diverged
+from this sketch. Claims marked *unverified* are exactly that; a
+complete list is at the
+end. Measurements cited by name live in
 `tools/memo_pays`, `tools/type_hash`, and `tools/corpus`.
 
 ## Divergences from what exists
@@ -418,19 +420,20 @@ Named, because a verdict corpus alone shipped ponyq 99 wrong rejections
 it never noticed:
 
 1. **The corpus**, floor-relative, per case — the headline gate.
-   Diagnostics render with program-level load failures first, then in
-   package load order, file order, and byte order within a file. Built
-   (`make message-oracle`): ponyc's expected message — which
-   `extract_corpus.py` already stores in the manifest — is
-   substring-matched against *all* of the case's emitted messages
-   rather than only the first, since ponyc's own first message depends
-   on its pass ordering, which this design does not reproduce. A case
-   whose expected message matches none emitted is the
+   Diagnostics render with program-level load failures first, then
+   in package load order, file order, and byte order within a file —
+   a deliberate divergence from ponyc, which prints in
+   pass-then-emission order — the oracles match by message and
+   position, never by stream order. Built (`make message-oracle`):
+   ponyc's expected message — which `extract_corpus.py` already
+   stores in the manifest — is substring-matched against *all* of
+   the case's emitted messages rather than only the first, since
+   ponyc's own first message depends on its pass ordering, which
+   this design does not reproduce. A case whose expected message
+   matches none emitted is the
    rejects-for-the-wrong-reason defect a binary verdict cannot see;
    deliberate divergences are recorded with reasons in
-   `message_exceptions.tsv`, and today those are the two cases where
-   ponyc abandons a block as unterminated and the tolerant parser
-   recovers inside it instead.
+   `message_exceptions.tsv`.
 2. **`tools/sig_agreement`**: `method_table` printed per entity and
    diffed against `ponyc --pass=traits --astpackage` over the standard
    library. The probe has been run: the dump is on stderr, is total over
@@ -504,14 +507,37 @@ two at `refer` — and three error earliest at ponyc's `name` pass.
 Zero false rejections over the corpus, the standard library, and this
 repository's own packages.
 
+**Reuse, import clash, invalid provides.** Built:
+ponyc's scope-pass `can't reuse name` rules over the shared bindings
+projection, its import-pass clash rules with deterministic per-file
+reporting, and the invalid-provides rule for entities and object
+literals, each pinned by a probe matrix against ponyc
+0.69.1-ef4abd8c0 before implementation. The corpus rises from 752
+to 760 of the 1,384-case set extracted at that same revision: two
+cases error earliest at `scope`, two at `flatten` and one at
+`expr` (the provides rule staged on both, entity clauses at
+flatten and object literals at expr), and three at `import` —
+sugar_expr cases whose
+own `Equatable` full ponyc rejects as a builtin clash.
+Three more cases flip verdict for that same clash, but their
+manifest rows are pass-limited accepts that `reach.tsv` already
+overrides to rejections, so they were agreements before the flip
+and stay agreements after it — the total does not move. Of the
+eight gained, five sat inside slice 1's measured ceiling, one is
+an `expr`-pass check outside every ceiling, and the `flatten` pair
+was counted in slice 2's ceiling and moves here: **+2 rejections,
++0.1 points**. Zero false rejections over the
+corpus, the standard library, and this repository's own packages.
+
 **Slice 2 — signatures.** The IR, lowering with canonicalisation, the
 capability algebra (pure table ports), `method_table` with synthesis,
 **the type-alias recursion legality check** (ponyc's dedicated pass;
 ponyq stack-overflowed until it ported the rule; 3 corpus rejections and
 a crash risk without it), reification as a plain function, the subtype
 evaluator, provides and constraint checking under the phase rule.
-Measured: 50 rejections error in `typealias_recursion`/`flatten`/
-`traits`, **+3.6 points**. The ~26 signature-level checks ponyc reports
+Measured: 48 rejections error in `typealias_recursion`/`flatten`/
+`traits`, **+3.5 points** — two `flatten` cases are the provides rule's,
+already caught above. The ~26 signature-level checks ponyc reports
 from its `expr` pass are unverified upside, excluded from every ceiling
 until a per-case audit separates them from body machinery; 535 measured
 rejections need `refer` or later.

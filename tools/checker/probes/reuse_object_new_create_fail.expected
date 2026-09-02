@@ -1,0 +1,8 @@
+Error:
+$DIR/main.pony:4:7: can't reuse name 'create'
+      new create() => None
+      ^
+    Info:
+    $DIR/main.pony:4:7: previous use of 'create'
+          new create() => None
+          ^

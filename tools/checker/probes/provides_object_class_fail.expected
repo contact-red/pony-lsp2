@@ -1,0 +1,8 @@
+Error:
+$DIR/main.pony:3:13: invalid provides type. Can only be interfaces, traits and intersects of those.
+    let o = object is Env end
+            ^
+    Info:
+    $DIR/main.pony:3:23: invalid type here
+        let o = object is Env end
+                          ^

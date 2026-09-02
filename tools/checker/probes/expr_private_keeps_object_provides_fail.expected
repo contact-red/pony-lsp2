@@ -1,0 +1,12 @@
+Error:
+$DIR/main.pony:5:14: can't access a private type from another package
+    let x = d._Priv
+             ^
+Error:
+$DIR/main.pony:6:13: invalid provides type. Can only be interfaces, traits and intersects of those.
+    let o = object is Other end
+            ^
+    Info:
+    $DIR/main.pony:6:23: invalid type here
+        let o = object is Other end
+                          ^

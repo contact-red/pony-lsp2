@@ -1,0 +1,8 @@
+Error:
+$DIR/main.pony:6:13: can't reuse name 'helper'
+        let helper = U8(2)
+            ^
+    Info:
+    $DIR/main.pony:4:7: previous use of 'helper'
+          fun helper(): U8 => 1
+          ^

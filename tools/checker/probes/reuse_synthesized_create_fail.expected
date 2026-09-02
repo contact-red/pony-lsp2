@@ -1,0 +1,8 @@
+Error:
+$DIR/main.pony:4:1: can't reuse name 'create'
+class C
+^
+    Info:
+    $DIR/main.pony:5:3: previous use of 'create' differs only by case
+      fun cReAtE(): U8 => 0
+      ^

@@ -1,0 +1,4 @@
+Error:
+$DIR/main.pony:6:11: can't reuse name 'coll'
+      fun coll(): U8 => 1
+          ^

@@ -1,0 +1,4 @@
+Error:
+$DIR/main.pony:3:12: can't find definition of 'Nope'
+    let x: Nope = None
+           ^

@@ -1,0 +1,20 @@
+Error:
+$ROOTS/builtin/bool.pony:1:1: existing type name clashes with type from './dep1'
+primitive Bool is Stringable
+^
+    Info:
+    $DIR/dep1/d1.pony:3:1: clash trying to use this type
+    primitive Bool
+    ^
+Error:
+$DIR/main.pony:1:1: can't use './dep1' without alias, clashing symbols
+use "./dep1"
+^
+Error:
+$DIR/dep1/d1.pony:3:1: type name clashes with builtin type
+primitive Bool
+^
+    Info:
+    $ROOTS/builtin/bool.pony:1:1: builtin type here
+    primitive Bool is Stringable
+    ^

@@ -1,0 +1,8 @@
+Error:
+$DIR/main.pony:5:11: can't reuse name 'v'
+    | let v: U8 => None
+          ^
+    Info:
+    $DIR/main.pony:3:5: previous use of 'v'
+        let v = U8(1)
+        ^

@@ -101,6 +101,12 @@ primitive CheckLegality
         Below this element index, an FFI call sits inside a trait or
         interface. Zero when not inside one.
         """
+      var ffi_decl_scope: USize = 0
+        """
+        Below this element index, a parameter belongs to an FFI
+        declaration, which ponyc's check_params never reaches — its
+        one caller checks methods. Zero when not inside one.
+        """
 
       for (element, depth, _, kind, _) in tree.walk() do
         stack.truncate(depth)
@@ -117,6 +123,12 @@ primitive CheckLegality
           _object(d, element)
         elseif kind is NdUseFFI then
           _ffi(d, element, true)
+          ffi_decl_scope = element + (try
+            tree.subtree_size(element)?
+          else
+            _Unreachable()
+            0
+          end)
         elseif kind is NdFFICall then
           _ffi(d, element, false)
           if element < default_method_scope then
@@ -190,6 +202,27 @@ primitive CheckLegality
           match _id_of(tree, element)
           | let id: USize =>
             _check_id(d, id, "type parameter" where start_upper = true)
+          end
+        elseif kind is NdParam then
+          if element >= ffi_decl_scope then
+            match _id_of(tree, element)
+            | let id: USize =>
+              _check_id(d, id, "parameter"
+                where start_lower = true, allow_underscore = true,
+                  allow_tick = true)
+            end
+          end
+        elseif kind is NdLambdaParam then
+          match _id_of(tree, element)
+          | let id: USize =>
+            // A `_` lambda parameter is legal whenever type
+            // inference can substitute it from an antecedent type,
+            // which this checker cannot see — so `_` is allowed
+            // here whatever the annotation, and a typed `_` with no
+            // antecedent is an accepted fail-open miss.
+            _check_id(d, id, "parameter"
+              where start_lower = true, allow_underscore = true,
+                allow_tick = true, allow_dontcare = true)
           end
         elseif kind is NdConsume then
           _consume(d, element)
@@ -553,7 +586,11 @@ primitive CheckLegality
       match name
       | let id: USize if d.text(id) == "_" =>
         match package
-        | let p: USize => d.report(p, "'_' cannot be in a package")
+        | let p: USize =>
+          // CheckNames' qualified-`_` guard in names.pony relies on
+          // this report existing: it returns silently there because
+          // this rung closes the ladder first.
+          d.report(p, "'_' cannot be in a package")
         end
         match typeargs
         | let t: USize => d.report(t, "'_' cannot have generic arguments")
@@ -1790,7 +1827,7 @@ primitive CheckLegality
         for child in tree.children(element)? do
           match tree.kind(child)?
           | TkPipe =>
-            d.report(child, _invalid_provides())
+            d.report(child, invalid_provides())
             return
           | NdNominal | NdGroupedType | NdInfixType =>
             _provides_type(d, child)
@@ -1799,7 +1836,7 @@ primitive CheckLegality
             // The tree is lossless, so trivia are children here too.
             None
           else
-            d.report(element, _invalid_provides())
+            d.report(element, invalid_provides())
             return
           end
         end
@@ -1814,7 +1851,7 @@ primitive CheckLegality
         end
       else
         d.report(_anchor(tree, element),
-          _invalid_provides())
+          invalid_provides())
       end
     end
 
@@ -1864,7 +1901,12 @@ primitive CheckLegality
     end
     element
 
-  fun _invalid_provides(): String val =>
+  fun invalid_provides(): String val =>
+    """
+    ponyc's invalid-provides wording — shared with `CheckProvides`,
+    which raises the same rule for shapes the syntax pass cannot
+    see.
+    """
     "invalid provides type. Can only be interfaces, traits and intersects " +
       "of those."
 
